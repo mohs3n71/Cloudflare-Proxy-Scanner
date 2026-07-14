@@ -128,9 +128,13 @@ def _request_bytes(request, timeout, attempts=3):
 
 
 def _read_json(url):
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "Cloudflare-Proxy-Scanner"}
+    github_token = os.environ.get("GH_TOKEN", "").strip()
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
     request = urllib.request.Request(
         url,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "Cloudflare-Proxy-Scanner"},
+        headers=headers,
     )
     return json.loads(_request_bytes(request, timeout=10, attempts=2).decode("utf-8"))
 

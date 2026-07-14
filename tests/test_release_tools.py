@@ -178,6 +178,18 @@ class XrayReleaseTests(unittest.TestCase):
                 xray_release._request_bytes(object(), timeout=1)
         urlopen.assert_called_once()
 
+    def test_read_json_authenticates_with_github_token_when_available(self):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"tag_name": "v9"}'
+        with patch.dict(os.environ, {"GH_TOKEN": "secret-token"}), patch.object(
+            xray_release.urllib.request, "urlopen", return_value=response
+        ) as urlopen:
+            data = xray_release._read_json("https://api.github.com/repos/XTLS/Xray-core/releases")
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(data, {"tag_name": "v9"})
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret-token")
+
     def test_download_xray_extracts_binary_writes_metadata_and_sets_unix_mode(self):
         release = {
             "tag_name": "v9",

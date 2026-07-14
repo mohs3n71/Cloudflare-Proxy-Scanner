@@ -78,6 +78,7 @@ jobs:
 
       - name: Build standalone application
         env:
+          GH_TOKEN: ${{ github.token }}
           XRAY_VERSION: ${{ inputs.xray_version || 'latest' }}
         run: >-
           python tools/build_release.py
@@ -88,6 +89,7 @@ jobs:
 
       - name: Build standalone application
         env:
+          GH_TOKEN: ${{ github.token }}
           XRAY_VERSION: ${{ inputs.xray_version || 'latest' }}
         run: >-
           python tools/build_release.py
