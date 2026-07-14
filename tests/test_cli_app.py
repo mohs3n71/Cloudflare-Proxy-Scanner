@@ -1,4 +1,5 @@
 import io
+import os
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -100,7 +101,8 @@ class AppTests(unittest.TestCase):
         save.assert_called_once()
 
     def test_run_speed_test_from_output_uses_selected_ips_and_mode(self):
-        with patch.object(app.cli, "ask_output_file", return_value="C:\\output\\scan.csv"):
+        output_path = os.path.join("output", "scan.csv")
+        with patch.object(app.cli, "ask_output_file", return_value=output_path):
             with patch.object(app, "read_working_ips", return_value=[{"ip": "104.16.1.1"}]):
                 with patch.object(app.cli, "ask_speed_mode", return_value="both"):
                     with patch.object(app, "run_scan") as run_scan:

@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import Mock, patch
 
@@ -427,13 +428,14 @@ class GuiTests(unittest.TestCase):
         app.output_var = FakeVar()
         app.output_paths_by_name = {}
         app.load_selected_output_into_table = Mock()
+        output_path = os.path.join("output", "scan.csv")
 
         def load_outputs():
-            app.output_paths_by_name = {"scan.csv": "C:\\output\\scan.csv"}
+            app.output_paths_by_name = {"scan.csv": output_path}
 
         app._load_outputs = load_outputs
 
-        app._select_output_path("C:\\output\\scan.csv")
+        app._select_output_path(output_path)
 
         self.assertEqual(app.output_var.value, "scan.csv")
         app.load_selected_output_into_table.assert_called_once()
