@@ -191,9 +191,22 @@ Right-click selected rows to open actions:
 - `Copy Proxy Configuration`
 - `Show Configuration QR Code`
 
-The QR action uses the active VLESS, VMess, or Trojan profile and replaces its server address with the selected IP. Scan the displayed code with a compatible mobile proxy client.
-
 You can select multiple rows with Ctrl/Shift and speed-test only those selected IPs. The IP currently being tested is highlighted.
+
+### Mobile QR Code Import
+
+The results table can generate a mobile-ready QR code for any tested IP:
+
+1. Select a valid configuration in `Proxy Configuration`.
+2. Select exactly one IP in the results table.
+3. Right-click the row and choose `Show Configuration QR Code`.
+4. Scan the displayed code with a compatible mobile proxy client.
+
+The generated configuration supports VLESS, VMess, and Trojan. It preserves the active profile's credentials, port, TLS settings, SNI, fingerprint, ALPN, WebSocket host, and WebSocket path while replacing the server address with the selected IP.
+
+QR generation happens entirely on the local computer. The configuration and its credentials are not sent to an online QR service. The QR window also provides `Copy Configuration` as a text-import fallback. The menu action is disabled when no valid configuration is active or when more than one IP is selected.
+
+Standalone releases include QR support. When running from source, install the dependency with `python -m pip install -r requirements.txt`.
 
 ### Scan Behavior
 
@@ -627,9 +640,22 @@ chmod +x run_gui.sh
 - `Copy Proxy Configuration`
 - `Show Configuration QR Code`
 
-گزینه QR با استفاده از کانفیگ فعال VLESS، VMess یا Trojan و IP انتخاب‌شده یک QR Code می‌سازد تا بتوانید آن را با کلاینت موبایل اسکن کنید.
-
 می‌توانید با Ctrl/Shift چند IP را انتخاب کنید و فقط همان‌ها را تست سرعت کنید. IP که در حال تست شدن است در جدول هایلایت می‌شود.
+
+## انتقال کانفیگ با QR Code به موبایل
+
+از داخل جدول نتایج می‌توانید برای هر IP تست‌شده یک QR Code آماده موبایل بسازید:
+
+1. در بخش `Proxy Configuration` یک کانفیگ معتبر انتخاب کنید.
+2. دقیقا یک IP را از جدول نتایج انتخاب کنید.
+3. روی ردیف راست‌کلیک کنید و `Show Configuration QR Code` را بزنید.
+4. QR Code نمایش‌داده‌شده را با یک کلاینت سازگار روی موبایل اسکن کنید.
+
+این قابلیت از VLESS، VMess و Trojan پشتیبانی می‌کند. کانفیگ ساخته‌شده اطلاعات ورود، پورت، تنظیمات TLS، SNI، fingerprint، ALPN، آدرس WebSocket host و مسیر WebSocket را از پروفایل فعال حفظ می‌کند و فقط آدرس سرور را با IP انتخاب‌شده جایگزین می‌کند.
+
+ساخت QR Code کاملا روی کامپیوتر شما انجام می‌شود و کانفیگ یا اطلاعات ورود آن برای هیچ سرویس آنلاین QR ارسال نمی‌شود. داخل پنجره QR دکمه `Copy Configuration` نیز برای انتقال متنی کانفیگ وجود دارد. اگر کانفیگ معتبری فعال نباشد یا بیشتر از یک IP انتخاب شده باشد، گزینه QR غیرفعال خواهد بود.
+
+نسخه‌های اجرایی مستقل، قابلیت QR را داخل خود دارند. برای اجرای سورس، وابستگی لازم را با فرمان `python -m pip install -r requirements.txt` نصب کنید.
 
 ## رفتار اسکن
 
