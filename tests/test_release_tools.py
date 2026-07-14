@@ -1,0 +1,88 @@
+import os
+import unittest
+from unittest.mock import patch
+
+from tools import build_release, xray_release
+
+
+class XrayReleaseTests(unittest.TestCase):
+    def test_normalize_os_supports_runtime_names(self):
+        self.assertEqual(xray_release.normalize_os("win32"), "windows")
+        self.assertEqual(xray_release.normalize_os("darwin"), "macos")
+        self.assertEqual(xray_release.normalize_os("linux"), "linux")
+
+    def test_normalize_arch_supports_common_names(self):
+        self.assertEqual(xray_release.normalize_arch("AMD64"), "x64")
+        self.assertEqual(xray_release.normalize_arch("i686"), "x86")
+        self.assertEqual(xray_release.normalize_arch("aarch64"), "arm64")
+
+    def test_xray_asset_name_covers_release_targets(self):
+        expected = {
+            ("windows", "x64"): "Xray-windows-64.zip",
+            ("windows", "x86"): "Xray-windows-32.zip",
+            ("windows", "arm64"): "Xray-windows-arm64-v8a.zip",
+            ("linux", "x64"): "Xray-linux-64.zip",
+            ("linux", "x86"): "Xray-linux-32.zip",
+            ("linux", "arm64"): "Xray-linux-arm64-v8a.zip",
+            ("macos", "x64"): "Xray-macos-64.zip",
+            ("macos", "arm64"): "Xray-macos-arm64-v8a.zip",
+        }
+
+        self.assertEqual(xray_release.XRAY_ASSETS, expected)
+        for target, asset_name in expected.items():
+            self.assertEqual(xray_release.xray_asset_name(*target), asset_name)
+
+    def test_release_api_url_supports_latest_and_version_tags(self):
+        self.assertTrue(xray_release.release_api_url("latest").endswith("/latest"))
+        self.assertTrue(xray_release.release_api_url("26.3.27").endswith("/tags/v26.3.27"))
+
+    def test_select_release_asset_returns_matching_download(self):
+        release = {
+            "tag_name": "v1",
+            "assets": [{"name": "Xray-linux-64.zip", "browser_download_url": "https://example.com/xray.zip"}],
+        }
+
+        self.assertEqual(
+            xray_release.select_release_asset(release, "Xray-linux-64.zip"),
+            "https://example.com/xray.zip",
+        )
+
+    def test_find_archive_member_accepts_nested_binary(self):
+        self.assertEqual(
+            xray_release.find_archive_member(["docs/LICENSE", "release/xray", "README"], "xray"),
+            "release/xray",
+        )
+
+    def test_detect_arch_uses_x86_for_32_bit_python(self):
+        with patch.object(xray_release.struct, "calcsize", return_value=4):
+            self.assertEqual(xray_release.detect_arch(), "x86")
+
+
+class BuildReleaseTests(unittest.TestCase):
+    def test_release_name_contains_platform_and_architecture(self):
+        self.assertEqual(
+            build_release.release_name("windows", "arm64"),
+            "cloudflare-proxy-scanner-windows-arm64",
+        )
+
+    def test_validate_native_target_rejects_cross_compile(self):
+        with self.assertRaisesRegex(RuntimeError, "cannot cross-compile"):
+            build_release.validate_native_target("linux", "arm64", "windows", "x64")
+
+    def test_pyinstaller_command_bundles_staged_xray(self):
+        command = build_release.pyinstaller_command(
+            "linux",
+            "x64",
+            "runtime/xray",
+            "dist",
+            "work",
+            "spec",
+        )
+
+        self.assertIn("--onefile", command)
+        self.assertIn("--windowed", command)
+        self.assertIn(f"runtime/xray{os.pathsep}bin/xray", command)
+
+
+if __name__ == "__main__":
+    unittest.main()

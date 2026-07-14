@@ -1,0 +1,128 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag, for example v1.0.0
+        required: true
+        type: string
+      xray_version:
+        description: Xray release tag or latest stable release
+        required: true
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-latest
+            os: windows
+            arch: x64
+            python_arch: x64
+          - target: windows-x86
+            runner: windows-latest
+            os: windows
+            arch: x86
+            python_arch: x86
+          - target: windows-arm64
+            runner: windows-11-arm
+            os: windows
+            arch: arm64
+            python_arch: arm64
+          - target: linux-x64
+            runner: ubuntu-24.04
+            os: linux
+            arch: x64
+            python_arch: x64
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+            python_arch: arm64
+          - target: macos-x64
+            runner: macos-15-intel
+            os: macos
+            arch: x64
+            python_arch: x64
+          - target: macos-arm64
+            runner: macos-15
+            os: macos
+            arch: arm64
+            python_arch: arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.python_arch }}
+
+      - name: Install build dependency
+        run: python -m pip install --disable-pip-version-check pyinstaller
+
+      - name: Build standalone application
+        env:
+          XRAY_VERSION: ${{ inputs.xray_version || 'latest' }}
+        run: >-
+          python tools/build_release.py
+          --os ${{ matrix.os }}
+          --arch ${{ matrix.arch }}
+          --xray-version "$env:XRAY_VERSION"
+        if: runner.os == 'Windows'
+
+      - name: Build standalone application
+        env:
+          XRAY_VERSION: ${{ inputs.xray_version || 'latest' }}
+        run: >-
+          python tools/build_release.py
+          --os ${{ matrix.os }}
+          --arch ${{ matrix.arch }}
+          --xray-version "$XRAY_VERSION"
+        if: runner.os != 'Windows'
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+
+    steps:
+      - name: Download all builds
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Create GitHub release
+        run: >-
+          gh release create "$RELEASE_TAG" release/*
+          --repo "$GITHUB_REPOSITORY"
+          --title "Cloudflare Proxy Scanner $RELEASE_TAG"
+          --generate-notes

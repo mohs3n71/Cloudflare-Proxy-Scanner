@@ -3,36 +3,25 @@ setlocal
 
 cd /d "%~dp0"
 
-set APP_NAME=cloudflare-proxy-tester
-set PYTHON_EXE=python
+if not "%PYTHON_EXE%"=="" goto python_ready
 
-if exist "C:\Users\Mohsen\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" (
-    set PYTHON_EXE=C:\Users\Mohsen\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe
+set "CODEX_PYTHON=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+if exist "%CODEX_PYTHON%" (
+    set "PYTHON_EXE=%CODEX_PYTHON%"
+) else (
+    where py >nul 2>&1
+    if errorlevel 1 (set "PYTHON_EXE=python") else (set "PYTHON_EXE=py")
 )
 
-if not exist "bin\xray\xray.exe" (
-    echo Missing bin\xray\xray.exe
-    echo Put the Windows Xray binary there before building.
-    exit /b 1
+:python_ready
+
+set TARGET_ARCH=%~1
+if "%XRAY_VERSION%"=="" set XRAY_VERSION=latest
+
+if "%TARGET_ARCH%"=="" (
+    "%PYTHON_EXE%" tools\build_release.py --os windows --xray-version "%XRAY_VERSION%"
+) else (
+    "%PYTHON_EXE%" tools\build_release.py --os windows --arch "%TARGET_ARCH%" --xray-version "%XRAY_VERSION%"
 )
 
-"%PYTHON_EXE%" -m PyInstaller --version >nul 2>&1
-if errorlevel 1 (
-    echo PyInstaller is not installed for "%PYTHON_EXE%".
-    echo Install it with: "%PYTHON_EXE%" -m pip install pyinstaller
-    exit /b 1
-)
-
-"%PYTHON_EXE%" -m PyInstaller ^
-    --noconfirm ^
-    --clean ^
-    --onefile ^
-    --windowed ^
-    --name "%APP_NAME%" ^
-    --add-data "bin\xray;bin\xray" ^
-    proxy_tester\gui_entry.py
-
-if errorlevel 1 exit /b 1
-
-echo.
-echo Built dist\%APP_NAME%.exe
+exit /b %errorlevel%

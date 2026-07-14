@@ -12,7 +12,7 @@ To the best of our knowledge, this is the first Cloudflare proxy scanner designe
 - **Built-in Xray runner:** the application launches, manages, and stops Xray itself, so a separate Xray client such as v2rayN is not required.
 - **A polished, full-featured GUI:** scanning, live progress, sortable results, speed tests, fragment optimization, configuration management, logs, and a local SOCKS proxy are available in one interface.
 
-The project also provides a CLI, Windows and Linux launch scripts, standalone executable build scripts, persistent runner settings, CSV exports, and automated tests.
+The project also provides a CLI, Windows/Linux/macOS launch scripts, multi-platform standalone releases, persistent runner settings, CSV exports, and automated tests.
 
 > Use this only with proxy accounts and servers you own or are allowed to test.
 
@@ -30,7 +30,7 @@ The project also provides a CLI, Windows and Linux launch scripts, standalone ex
 - Lets you right-click selected IPs and speed-test only those rows.
 - Generates replacement configs using the working IPs.
 - Saves GUI logs to `logs`.
-- Can be packaged as a standalone Windows or Linux executable.
+- Can publish standalone Windows, Linux, and macOS releases for x64, x86, and ARM64 targets where supported.
 
 ### Supported Config Types
 
@@ -58,13 +58,15 @@ Each file should contain at least one supported config line. If there is no vali
 
 ### Project Folders
 
-- `bin/xray`: Xray binary and data files.
+- `bin/xray`: local Xray runtime cache. Launch scripts download the correct official binary when missing; downloaded files are ignored by Git.
+- `tools`: shared Xray download and native release-build tooling.
 - `proxy_tester`: Python application code.
 - `configs`: your config text files. Real configs are ignored by Git.
 - `output`: scan CSVs and generated config files.
 - `logs`: GUI scan and speed-test logs.
 - `tests`: unit tests.
-- `dist`: standalone executable output after building.
+- `dist`: temporary PyInstaller output.
+- `release`: final standalone release artifacts.
 - `build`: PyInstaller temporary build folder.
 
 ### Requirements
@@ -72,24 +74,19 @@ Each file should contain at least one supported config line. If there is no vali
 For normal source usage:
 
 - Python 3.10 or newer.
-- Xray inside `bin/xray`.
+- Internet access the first time a launch script downloads Xray from the official XTLS/Xray-core release.
 
-Windows expects:
-
-```text
-bin\xray\xray.exe
-```
-
-Linux expects:
+The launch scripts cache the current platform binary as:
 
 ```text
+bin\xray\xray.exe   (Windows)
 bin/xray/xray
 ```
 
-On Linux, make Xray executable:
+You can also prepare Xray manually for the current machine:
 
 ```sh
-chmod +x bin/xray/xray
+python tools/xray_release.py --if-missing
 ```
 
 ### Run The GUI
@@ -101,6 +98,13 @@ run_gui.bat
 ```
 
 Linux:
+
+```sh
+chmod +x run_gui.sh
+./run_gui.sh
+```
+
+macOS:
 
 ```sh
 chmod +x run_gui.sh
@@ -312,18 +316,18 @@ run_tests.bat
 Direct Python command:
 
 ```bat
-C:\Users\Mohsen\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m unittest discover -s tests
+python -m unittest discover -s tests
 ```
 
 ### Build A Standalone Executable
 
-The project uses PyInstaller for one-file builds.
+The project uses PyInstaller for native one-file builds. Every build downloads the matching official Xray release into `build/runtime`, then bundles it into the application. Xray binaries are not stored in Git.
 
 Important:
 
-- Build Windows `.exe` on Windows.
-- Build Linux binary on Linux.
-- The build bundles `bin/xray`.
+- PyInstaller cannot cross-compile. Build each target on its matching operating system and CPU architecture.
+- Windows x86 can be built on x64 Windows by using a 32-bit Python interpreter.
+- macOS output is an unsigned `.app` packaged as a ZIP, so Gatekeeper may require manual approval.
 - Runtime `configs`, `output`, and `logs` are created beside the executable.
 
 Install PyInstaller first:
@@ -336,26 +340,60 @@ Windows build:
 
 ```bat
 build_windows.bat
+set PYTHON_EXE=C:\path\to\32-bit-python.exe
+build_windows.bat x86
+build_windows.bat arm64
 ```
 
-Output:
-
-```text
-dist\cloudflare-proxy-tester.exe
-```
+The x86 command requires a 32-bit Python interpreter. Run the ARM64 command on Windows ARM64 with ARM64 Python.
 
 Linux build:
 
 ```sh
 chmod +x build_linux.sh
 ./build_linux.sh
+./build_linux.sh arm64
 ```
 
-Output:
+macOS build:
+
+```sh
+chmod +x build_macos.sh
+./build_macos.sh
+```
+
+Final artifacts are written to `release`, for example:
 
 ```text
-dist/cloudflare-proxy-tester
+release/cloudflare-proxy-scanner-windows-x64.exe
+release/cloudflare-proxy-scanner-linux-arm64
+release/cloudflare-proxy-scanner-macos-arm64.zip
 ```
+
+Set `XRAY_VERSION` to pin an Xray release; otherwise the latest stable official release is used:
+
+```sh
+XRAY_VERSION=v26.3.27 ./build_linux.sh
+```
+
+### Publish Multi-Platform GitHub Releases
+
+`.github/workflows/release.yml` builds these targets in parallel:
+
+| Operating system | Architectures |
+| --- | --- |
+| Windows | x64, x86, ARM64 |
+| Linux | x64, ARM64 |
+| macOS | Intel x64, Apple Silicon ARM64 |
+
+Push a version tag to build and publish a GitHub release automatically:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+You can also run `Build Release` manually from GitHub Actions and enter a release tag and optional Xray version. Linux x86 is supported by the downloader and local build tooling but is not included in the automatic matrix because GitHub does not provide a standard hosted Linux x86 runner.
 
 ### Running The Standalone App
 
@@ -397,21 +435,20 @@ Try:
 - Increase speed timeout above `7000ms`.
 - Check the newest log file in `logs`.
 
-**Linux build fails**
+**Xray download fails**
 
-Make sure Linux Xray exists:
+Check internet access and try the downloader directly to see the error:
 
 ```sh
-ls -l bin/xray/xray
-chmod +x bin/xray/xray
+python tools/xray_release.py --if-missing
 ```
 
-**Windows build says PyInstaller is missing**
+**A native build says PyInstaller is missing**
 
 Install it for the same Python used by the script:
 
-```bat
-C:\Users\Mohsen\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pip install pyinstaller
+```sh
+python -m pip install pyinstaller
 ```
 
 **Built app opens but cannot test**
@@ -470,13 +507,15 @@ configs/trojan-server.config
 
 ## پوشه‌های پروژه
 
-- `bin/xray`: فایل اجرایی Xray و فایل‌های دیتای آن.
+- `bin/xray`: کش محلی Xray. اسکریپت اجرا در صورت نبود فایل، نسخه رسمی مناسب سیستم را دانلود می‌کند.
+- `tools`: ابزار مشترک دانلود Xray و ساخت نسخه‌های مستقل.
 - `proxy_tester`: کد اصلی برنامه.
 - `configs`: فایل‌های کانفیگ شما. کانفیگ‌های واقعی توسط Git نادیده گرفته می‌شوند.
 - `output`: خروجی‌های CSV و کانفیگ‌های ساخته‌شده.
 - `logs`: لاگ‌های اسکن و تست سرعت.
 - `tests`: تست‌های یونیت.
-- `dist`: خروجی فایل اجرایی بعد از بیلد.
+- `dist`: خروجی موقت PyInstaller.
+- `release`: فایل‌های نهایی آماده انتشار.
 - `build`: پوشه موقت PyInstaller.
 
 ## پیش‌نیازها
@@ -484,24 +523,19 @@ configs/trojan-server.config
 برای اجرای سورس:
 
 - Python نسخه 3.10 یا جدیدتر.
-- Xray داخل پوشه `bin/xray`.
+- دسترسی اینترنت در اولین اجرا برای دانلود Xray از ریلیز رسمی XTLS/Xray-core.
 
-در ویندوز:
-
-```text
-bin\xray\xray.exe
-```
-
-در لینوکس:
+اسکریپت اجرا فایل مناسب سیستم فعلی را در این مسیرها کش می‌کند:
 
 ```text
+bin\xray\xray.exe   (Windows)
 bin/xray/xray
 ```
 
-در لینوکس فایل Xray باید executable باشد:
+برای دانلود دستی نسخه مناسب سیستم فعلی:
 
 ```sh
-chmod +x bin/xray/xray
+python tools/xray_release.py --if-missing
 ```
 
 ## اجرای GUI
@@ -513,6 +547,13 @@ run_gui.bat
 ```
 
 لینوکس:
+
+```sh
+chmod +x run_gui.sh
+./run_gui.sh
+```
+
+macOS:
 
 ```sh
 chmod +x run_gui.sh
@@ -701,18 +742,18 @@ run_tests.bat
 اجرای مستقیم با Python:
 
 ```bat
-C:\Users\Mohsen\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m unittest discover -s tests
+python -m unittest discover -s tests
 ```
 
 ## ساخت فایل اجرایی مستقل
 
-برای ساخت فایل اجرایی تک‌فایل از PyInstaller استفاده می‌شود.
+برای ساخت فایل اجرایی مستقل از PyInstaller استفاده می‌شود. هر بیلد، نسخه رسمی و مناسب Xray را به‌صورت خودکار دانلود و داخل برنامه bundle می‌کند؛ فایل‌های باینری Xray داخل Git نگهداری نمی‌شوند.
 
 نکات مهم:
 
-- فایل `.exe` ویندوز را روی ویندوز بسازید.
-- فایل لینوکس را روی لینوکس بسازید.
-- پوشه `bin/xray` داخل فایل اجرایی bundle می‌شود.
+- PyInstaller قابلیت cross-compile ندارد؛ هر نسخه باید روی همان سیستم‌عامل و معماری ساخته شود.
+- نسخه Windows x86 را می‌توان روی Windows x64 با Python سی‌ودودوبیتی ساخت.
+- خروجی macOS بدون امضای دیجیتال است و به‌صورت ZIP منتشر می‌شود.
 - پوشه‌های `configs`، `output` و `logs` کنار فایل اجرایی ساخته می‌شوند.
 
 اول PyInstaller را نصب کنید:
@@ -725,25 +766,41 @@ python -m pip install pyinstaller
 
 ```bat
 build_windows.bat
+set PYTHON_EXE=C:\path\to\32-bit-python.exe
+build_windows.bat x86
+build_windows.bat arm64
 ```
 
-خروجی:
-
-```text
-dist\cloudflare-proxy-tester.exe
-```
+برای بیلد x86 باید از Python نسخه 32 بیتی استفاده کنید. فرمان ARM64 نیز باید روی Windows ARM64 و با Python نسخه ARM64 اجرا شود.
 
 بیلد لینوکس:
 
 ```sh
 chmod +x build_linux.sh
 ./build_linux.sh
+./build_linux.sh arm64
 ```
 
-خروجی:
+بیلد macOS:
+
+```sh
+chmod +x build_macos.sh
+./build_macos.sh
+```
+
+فایل‌های نهایی داخل پوشه `release` ساخته می‌شوند:
 
 ```text
-dist/cloudflare-proxy-tester
+release/cloudflare-proxy-scanner-windows-x64.exe
+release/cloudflare-proxy-scanner-linux-arm64
+release/cloudflare-proxy-scanner-macos-arm64.zip
+```
+
+workflow موجود در `.github/workflows/release.yml` نسخه‌های Windows x64/x86/ARM64، Linux x64/ARM64 و macOS Intel/Apple Silicon را می‌سازد. با push کردن یک tag نسخه، GitHub Release به‌صورت خودکار منتشر می‌شود:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 ## اجرای نسخه ساخته‌شده
@@ -786,21 +843,20 @@ logs
 - timeout تست سرعت را بیشتر از `7000ms` کنید.
 - جدیدترین فایل داخل `logs` را بررسی کنید.
 
-**بیلد لینوکس fail می‌شود**
+**دانلود Xray fail می‌شود**
 
-مطمئن شوید Xray لینوکس وجود دارد:
+اینترنت را بررسی کنید و دانلودر را مستقیم اجرا کنید تا متن خطا نمایش داده شود:
 
 ```sh
-ls -l bin/xray/xray
-chmod +x bin/xray/xray
+python tools/xray_release.py --if-missing
 ```
 
 **بیلد ویندوز می‌گوید PyInstaller نصب نیست**
 
 آن را برای همان Python نصب کنید:
 
-```bat
-C:\Users\Mohsen\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pip install pyinstaller
+```sh
+python -m pip install pyinstaller
 ```
 
 **برنامه ساخته‌شده باز می‌شود ولی تست انجام نمی‌دهد**

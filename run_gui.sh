@@ -2,4 +2,7 @@
 set -eu
 
 cd "$(dirname "$0")"
-exec python3 -m proxy_tester.gui
+
+PYTHON_EXE="${PYTHON_EXE:-python3}"
+"$PYTHON_EXE" tools/xray_release.py --if-missing
+exec "$PYTHON_EXE" -m proxy_tester.gui

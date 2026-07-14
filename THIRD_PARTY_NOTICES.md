@@ -2,10 +2,9 @@
 
 ## Xray-core
 
-This repository includes unmodified Xray-core executables in `bin/xray` so the application can run Xray without requiring a separate client installation.
+Launch and release-build scripts download unmodified Xray-core executables from official releases. Standalone release artifacts bundle the downloaded executable so users do not need a separate Xray client installation.
 
-- `xray.exe`: Xray-core 26.6.1, Windows amd64, commit `9f96d16`
-- `xray-32.exe`: Xray-core 26.6.27, Windows 386, commit `45cf289`
+- Supported release assets: Windows x64/x86/ARM64, Linux x64/x86/ARM64, and macOS x64/ARM64
 - Upstream project and corresponding source: https://github.com/XTLS/Xray-core
 - License: Mozilla Public License 2.0
 - License text: https://github.com/XTLS/Xray-core/blob/main/LICENSE
