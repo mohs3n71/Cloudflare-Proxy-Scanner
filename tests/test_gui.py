@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
-from proxy_tester import gui, gui_config, gui_runner
+from proxy_tester import gui, gui_config, gui_runner, gui_table
 from proxy_tester.settings import RunnerSettings
 
 
@@ -198,6 +198,30 @@ class GuiTests(unittest.TestCase):
         )
 
         self.assertEqual(app._selected_table_ips(), ["104.16.1.1", "104.16.1.2"])
+
+    def test_show_selected_config_qr_uses_selected_ip_and_profile(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        profile = Mock(protocol="trojan")
+        app._selected_single_ip = Mock(return_value="104.16.1.1")
+        app._selected_profile = Mock(return_value=profile)
+
+        with patch.object(gui_table, "make_proxy_url", return_value="trojan://generated") as make_url:
+            with patch.object(gui_table, "open_config_qr") as open_qr:
+                app.show_selected_config_qr()
+
+        make_url.assert_called_once_with("104.16.1.1", "cf-104.16.1.1", profile)
+        open_qr.assert_called_once_with(app, "trojan://generated", "trojan", "104.16.1.1")
+
+    def test_show_selected_config_qr_requires_one_selected_ip(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app._selected_single_ip = Mock(return_value=None)
+        app._selected_profile = Mock()
+
+        with patch.object(gui_table, "open_config_qr") as open_qr:
+            app.show_selected_config_qr()
+
+        app._selected_profile.assert_not_called()
+        open_qr.assert_not_called()
 
     def test_make_scan_ips_can_scan_all_cloudflare_ips(self):
         app = object.__new__(gui.ProxyTesterGui)

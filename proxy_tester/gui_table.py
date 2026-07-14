@@ -1,4 +1,5 @@
 from .gui_utils import table_sort_value
+from .gui_qr import open_config_qr
 from .proxy_config import make_proxy_url
 
 
@@ -24,6 +25,10 @@ class TableMixin:
         self.table_menu.entryconfigure(self.table_menu_copy_ip_index, state="normal" if single else "disabled")
         self.table_menu.entryconfigure(
             self.table_menu_copy_config_index,
+            state="normal" if single and self.profile is not None else "disabled",
+        )
+        self.table_menu.entryconfigure(
+            self.table_menu_qr_config_index,
             state="normal" if single and self.profile is not None else "disabled",
         )
         try:
@@ -77,6 +82,16 @@ class TableMixin:
             return
         self.clipboard_clear()
         self.clipboard_append(make_proxy_url(ip, f"cf-{ip}", profile))
+
+    def show_selected_config_qr(self):
+        ip = self._selected_single_ip()
+        if not ip:
+            return
+        profile = self._selected_profile()
+        if profile is None:
+            return
+        config_url = make_proxy_url(ip, f"cf-{ip}", profile)
+        open_config_qr(self, config_url, profile.protocol, ip)
 
     def _upsert_table_result(self, result):
         ip = result.get("ip", "")

@@ -10,6 +10,7 @@ To the best of our knowledge, this is the first Cloudflare proxy scanner designe
 
 - **Custom fragment testing:** scan with 24 mode-specific defaults or supply your own Xray packet, interval, and length variations to find settings that work best on changing networks.
 - **Built-in Xray runner:** the application launches, manages, and stops Xray itself, so a separate Xray client such as v2rayN is not required.
+- **Mobile configuration import:** display any generated VLESS, VMess, or Trojan configuration as a QR code directly from the results table.
 - **A polished, full-featured GUI:** scanning, live progress, sortable results, speed tests, fragment optimization, configuration management, logs, and a local SOCKS proxy are available in one interface.
 
 The project also provides a CLI, Windows/Linux/macOS launch scripts, multi-platform standalone releases, persistent runner settings, CSV exports, and automated tests.
@@ -75,6 +76,12 @@ For normal source usage:
 
 - Python 3.10 or newer.
 - Internet access the first time a launch script downloads Xray from the official XTLS/Xray-core release.
+
+Install the Python dependency once:
+
+```sh
+python -m pip install -r requirements.txt
+```
 
 The launch scripts cache the current platform binary as:
 
@@ -174,12 +181,15 @@ Use `Remove Failed Results (-1)` to remove any row where latency, download, or u
 
 Right-click selected rows to open actions:
 
-- `Speed Test Download`
-- `Speed Test Upload`
-- `Speed Test Both`
-- `Run IP With Xray`
+- `Test Download Speed`
+- `Test Upload Speed`
+- `Test Download and Upload`
+- `Run Selected IP with Xray`
 - `Copy IP`
-- `Copy Config`
+- `Copy Proxy Configuration`
+- `Show Configuration QR Code`
+
+The QR action uses the active VLESS, VMess, or Trojan profile and replaces its server address with the selected IP. Scan the displayed code with a compatible mobile proxy client.
 
 You can select multiple rows with Ctrl/Shift and speed-test only those selected IPs. The IP currently being tested is highlighted.
 
@@ -448,7 +458,7 @@ python tools/xray_release.py --if-missing
 Install it for the same Python used by the script:
 
 ```sh
-python -m pip install pyinstaller
+python -m pip install -r requirements.txt pyinstaller
 ```
 
 **Built app opens but cannot test**
@@ -525,6 +535,12 @@ configs/trojan-server.config
 - Python نسخه 3.10 یا جدیدتر.
 - دسترسی اینترنت در اولین اجرا برای دانلود Xray از ریلیز رسمی XTLS/Xray-core.
 
+وابستگی Python را یک‌بار نصب کنید:
+
+```sh
+python -m pip install -r requirements.txt
+```
+
 اسکریپت اجرا فایل مناسب سیستم فعلی را در این مسیرها کش می‌کند:
 
 ```text
@@ -599,11 +615,15 @@ chmod +x run_gui.sh
 
 با راست‌کلیک روی ردیف‌های انتخاب‌شده این گزینه‌ها را دارید:
 
-- `Speed Test Download`
-- `Speed Test Upload`
-- `Speed Test Both`
+- `Test Download Speed`
+- `Test Upload Speed`
+- `Test Download and Upload`
+- `Run Selected IP with Xray`
 - `Copy IP`
-- `Copy Config`
+- `Copy Proxy Configuration`
+- `Show Configuration QR Code`
+
+گزینه QR با استفاده از کانفیگ فعال VLESS، VMess یا Trojan و IP انتخاب‌شده یک QR Code می‌سازد تا بتوانید آن را با کلاینت موبایل اسکن کنید.
 
 می‌توانید با Ctrl/Shift چند IP را انتخاب کنید و فقط همان‌ها را تست سرعت کنید. IP که در حال تست شدن است در جدول هایلایت می‌شود.
 
@@ -856,7 +876,7 @@ python tools/xray_release.py --if-missing
 آن را برای همان Python نصب کنید:
 
 ```sh
-python -m pip install pyinstaller
+python -m pip install -r requirements.txt pyinstaller
 ```
 
 **برنامه ساخته‌شده باز می‌شود ولی تست انجام نمی‌دهد**

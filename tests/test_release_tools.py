@@ -69,6 +69,12 @@ class BuildReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "cannot cross-compile"):
             build_release.validate_native_target("linux", "arm64", "windows", "x64")
 
+    def test_validate_build_dependencies_lists_missing_packages(self):
+        available = {"PyInstaller": object(), "qrcode": None}
+        with patch.object(build_release.importlib.util, "find_spec", side_effect=available.get):
+            with self.assertRaisesRegex(RuntimeError, "qrcode"):
+                build_release.validate_build_dependencies()
+
     def test_pyinstaller_command_bundles_staged_xray(self):
         command = build_release.pyinstaller_command(
             "linux",

@@ -11,3 +11,11 @@ Launch and release-build scripts download unmodified Xray-core executables from 
 - Official releases: https://github.com/XTLS/Xray-core/releases
 
 Xray-core is developed by the Project X / XTLS contributors. This project is independent and is not affiliated with or endorsed by XTLS.
+
+## qrcode
+
+The application uses the qrcode Python package to generate configuration QR matrices.
+
+- Upstream project and corresponding source: https://github.com/lincolnloop/python-qrcode
+- License: BSD 3-Clause
+- Package release: https://pypi.org/project/qrcode/

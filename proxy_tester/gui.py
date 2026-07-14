@@ -305,6 +305,7 @@ class ProxyTesterGui(ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
         self.table_menu_run_xray_index = 4
         self.table_menu_copy_ip_index = 5
         self.table_menu_copy_config_index = 6
+        self.table_menu_qr_config_index = 7
         self.table_menu.add_command(
             label="Test Download Speed",
             command=lambda: self.start_speed_test_for_selected("download"),
@@ -321,6 +322,7 @@ class ProxyTesterGui(ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
         self.table_menu.add_command(label="Run Selected IP with Xray", command=self.run_selected_ip_with_xray)
         self.table_menu.add_command(label="Copy IP", command=self.copy_selected_ip)
         self.table_menu.add_command(label="Copy Proxy Configuration", command=self.copy_selected_config)
+        self.table_menu.add_command(label="Show Configuration QR Code", command=self.show_selected_config_qr)
 
         ttk.Label(right, text="Activity Log").grid(row=2, column=0, sticky="w", pady=(12, 4))
         self.log = tk.Text(right, height=12, wrap="word")

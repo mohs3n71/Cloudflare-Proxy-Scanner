@@ -13,6 +13,7 @@ except ImportError:
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_NAME = "cloudflare-proxy-scanner"
+BUILD_DEPENDENCIES = ("PyInstaller", "qrcode")
 
 
 def release_name(target_os, target_arch):
@@ -28,6 +29,15 @@ def validate_native_target(target_os, target_arch, current_os=None, current_arch
         raise RuntimeError(
             f"PyInstaller cannot cross-compile {target_os}-{target_arch} from "
             f"{current_os}-{current_arch}. Run this build on the target platform."
+        )
+
+
+def validate_build_dependencies():
+    missing = [name for name in BUILD_DEPENDENCIES if importlib.util.find_spec(name) is None]
+    if missing:
+        raise RuntimeError(
+            f"Missing build dependencies: {', '.join(missing)}. Run: "
+            f"{sys.executable} -m pip install -r requirements.txt pyinstaller"
         )
 
 
@@ -76,8 +86,7 @@ def build_release(target_os, target_arch, xray_version):
     target_os = normalize_os(target_os)
     target_arch = normalize_arch(target_arch)
     validate_native_target(target_os, target_arch)
-    if importlib.util.find_spec("PyInstaller") is None:
-        raise RuntimeError(f"PyInstaller is not installed. Run: {sys.executable} -m pip install pyinstaller")
+    validate_build_dependencies()
 
     name = release_name(target_os, target_arch)
     runtime_dir = os.path.join(PROJECT_ROOT, "build", "runtime", name, "xray")
