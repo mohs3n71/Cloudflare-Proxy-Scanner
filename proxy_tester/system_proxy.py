@@ -7,7 +7,6 @@ INTERNET_SETTINGS = r"Software\Microsoft\Windows\CurrentVersion\Internet Setting
 def set_socks_proxy(port, host="127.0.0.1"):
     if os.name != "nt":
         return "System proxy changes are only supported on Windows."
-    import ctypes
     import winreg
 
     server = f"socks={host}:{port}"
