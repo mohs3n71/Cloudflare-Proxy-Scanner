@@ -5,6 +5,8 @@ import platform
 import stat
 import struct
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -12,6 +14,7 @@ from io import BytesIO
 
 
 XRAY_RELEASE_API = "https://api.github.com/repos/XTLS/Xray-core/releases"
+XRAY_METADATA_FILE = "xray.metadata.json"
 XRAY_ASSETS = {
     ("windows", "x64"): "Xray-windows-64.zip",
     ("windows", "x86"): "Xray-windows-32.zip",
@@ -71,9 +74,25 @@ def xray_asset_name(target_os, target_arch):
 def release_api_url(version):
     version = (version or "latest").strip()
     if version.lower() == "latest":
-        return f"{XRAY_RELEASE_API}/latest"
+        return f"{XRAY_RELEASE_API}?per_page=100"
     tag = version if version.startswith("v") else f"v{version}"
     return f"{XRAY_RELEASE_API}/tags/{urllib.parse.quote(tag)}"
+
+
+def select_latest_published_release(releases):
+    published = [release for release in releases if not release.get("draft") and release.get("published_at")]
+    if not published:
+        raise RuntimeError("Xray does not have a published release.")
+    return max(published, key=lambda release: release["published_at"])
+
+
+def resolve_release(version):
+    release_data = _read_json(release_api_url(version))
+    if (version or "latest").strip().lower() == "latest":
+        if not isinstance(release_data, list):
+            raise RuntimeError("GitHub returned an invalid Xray release list.")
+        return select_latest_published_release(release_data)
+    return release_data
 
 
 def select_release_asset(release, asset_name):
@@ -95,19 +114,55 @@ def find_archive_member(names, binary_name):
     return min(matches, key=lambda name: (name.count("/"), len(name)))
 
 
+def _request_bytes(request, timeout, attempts=3):
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(2**attempt)
+
+
 def _read_json(url):
     request = urllib.request.Request(
         url,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "Cloudflare-Proxy-Scanner"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    return json.loads(_request_bytes(request, timeout=10, attempts=2).decode("utf-8"))
 
 
 def _read_bytes(url):
     request = urllib.request.Request(url, headers={"User-Agent": "Cloudflare-Proxy-Scanner"})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        return response.read()
+    return _request_bytes(request, timeout=120)
+
+
+def read_xray_metadata(output_dir):
+    path = os.path.join(output_dir, XRAY_METADATA_FILE)
+    try:
+        with open(path, "r", encoding="utf-8") as metadata_file:
+            data = json.load(metadata_file)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_xray_metadata(output_dir, target_os, target_arch, version):
+    path = os.path.join(output_dir, XRAY_METADATA_FILE)
+    temporary_path = path + ".tmp"
+    metadata = {"os": target_os, "arch": target_arch, "version": version}
+    with open(temporary_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, indent=2, sort_keys=True)
+        metadata_file.write("\n")
+    os.replace(temporary_path, path)
+
+
+def installed_xray_matches(output_dir, target_os, target_arch, version):
+    metadata = read_xray_metadata(output_dir)
+    return metadata == {"os": target_os, "arch": target_arch, "version": version}
 
 
 def download_xray(target_os, target_arch, output_dir, version="latest", if_missing=False):
@@ -115,11 +170,25 @@ def download_xray(target_os, target_arch, output_dir, version="latest", if_missi
     target_arch = normalize_arch(target_arch)
     binary_name = archive_binary_name(target_os)
     binary_path = os.path.join(output_dir, binary_name)
-    if if_missing and os.path.isfile(binary_path):
-        return binary_path, None
 
     asset_name = xray_asset_name(target_os, target_arch)
-    release = _read_json(release_api_url(version))
+    try:
+        release = resolve_release(version)
+    except Exception:
+        if if_missing and os.path.isfile(binary_path):
+            return binary_path, None
+        raise
+    resolved_version = release.get("tag_name")
+    if not resolved_version:
+        raise RuntimeError("GitHub returned an Xray release without a tag name.")
+    if if_missing and os.path.isfile(binary_path) and installed_xray_matches(
+        output_dir,
+        target_os,
+        target_arch,
+        resolved_version,
+    ):
+        return binary_path, None
+
     download_url = select_release_asset(release, asset_name)
     archive_bytes = _read_bytes(download_url)
 
@@ -134,7 +203,8 @@ def download_xray(target_os, target_arch, output_dir, version="latest", if_missi
     os.replace(temporary_path, binary_path)
     if target_os != "windows":
         os.chmod(binary_path, os.stat(binary_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return binary_path, release.get("tag_name")
+    write_xray_metadata(output_dir, target_os, target_arch, resolved_version)
+    return binary_path, resolved_version
 
 
 def build_parser():

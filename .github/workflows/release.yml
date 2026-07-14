@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       xray_version:
-        description: Xray release tag or latest stable release
+        description: Xray release tag or newest published release, including prereleases
         required: true
         default: latest
         type: string

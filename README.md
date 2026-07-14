@@ -90,6 +90,8 @@ bin\xray\xray.exe   (Windows)
 bin/xray/xray
 ```
 
+On each launch, the app checks the full official Xray release list. If a newer published release exists, including a prerelease, it replaces the cached binary automatically. If GitHub is temporarily unreachable, the existing cached binary remains usable.
+
 You can also prepare Xray manually for the current machine:
 
 ```sh
@@ -380,7 +382,7 @@ release/cloudflare-proxy-scanner-linux-arm64
 release/cloudflare-proxy-scanner-macos-arm64.zip
 ```
 
-Set `XRAY_VERSION` to pin an Xray release; otherwise the latest stable official release is used:
+Set `XRAY_VERSION` to pin an Xray release; otherwise the newest published official release is used, including prereleases:
 
 ```sh
 XRAY_VERSION=v26.3.27 ./build_linux.sh
@@ -547,6 +549,8 @@ python -m pip install -r requirements.txt
 bin\xray\xray.exe   (Windows)
 bin/xray/xray
 ```
+
+در هر اجرا، برنامه فهرست کامل ریلیزهای رسمی Xray را بررسی می‌کند. اگر ریلیز جدیدتری منتشر شده باشد، حتی اگر prerelease باشد، فایل کش‌شده به‌صورت خودکار جایگزین می‌شود. اگر GitHub موقتا در دسترس نباشد، برنامه از فایل موجود استفاده می‌کند.
 
 برای دانلود دستی نسخه مناسب سیستم فعلی:
 
@@ -814,6 +818,12 @@ chmod +x build_macos.sh
 release/cloudflare-proxy-scanner-windows-x64.exe
 release/cloudflare-proxy-scanner-linux-arm64
 release/cloudflare-proxy-scanner-macos-arm64.zip
+```
+
+در حالت پیش‌فرض جدیدترین ریلیز منتشرشده Xray، شامل prerelease، استفاده می‌شود. برای ثابت نگه داشتن یک نسخه مشخص می‌توانید `XRAY_VERSION` را تنظیم کنید:
+
+```sh
+XRAY_VERSION=v26.7.11 ./build_linux.sh
 ```
 
 workflow موجود در `.github/workflows/release.yml` نسخه‌های Windows x64/x86/ARM64، Linux x64/ARM64 و macOS Intel/Apple Silicon را می‌سازد. با push کردن یک tag نسخه، GitHub Release به‌صورت خودکار منتشر می‌شود:

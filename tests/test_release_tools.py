@@ -1,6 +1,7 @@
 import os
+import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from tools import build_release, xray_release
 
@@ -33,8 +34,29 @@ class XrayReleaseTests(unittest.TestCase):
             self.assertEqual(xray_release.xray_asset_name(*target), asset_name)
 
     def test_release_api_url_supports_latest_and_version_tags(self):
-        self.assertTrue(xray_release.release_api_url("latest").endswith("/latest"))
+        self.assertTrue(xray_release.release_api_url("latest").endswith("/releases?per_page=100"))
         self.assertTrue(xray_release.release_api_url("26.3.27").endswith("/tags/v26.3.27"))
+
+    def test_select_latest_published_release_includes_prereleases(self):
+        releases = [
+            {"tag_name": "v1", "published_at": "2026-01-01T00:00:00Z", "draft": False, "prerelease": False},
+            {"tag_name": "v2", "published_at": "2026-02-01T00:00:00Z", "draft": False, "prerelease": True},
+            {"tag_name": "v3", "published_at": "2026-03-01T00:00:00Z", "draft": True, "prerelease": False},
+        ]
+
+        selected = xray_release.select_latest_published_release(releases)
+
+        self.assertEqual(selected["tag_name"], "v2")
+
+    def test_resolve_release_uses_newest_published_release_for_latest(self):
+        releases = [
+            {"tag_name": "v1", "published_at": "2026-01-01T00:00:00Z", "draft": False},
+            {"tag_name": "v2", "published_at": "2026-02-01T00:00:00Z", "draft": False},
+        ]
+        with patch.object(xray_release, "_read_json", return_value=releases):
+            release = xray_release.resolve_release("latest")
+
+        self.assertEqual(release["tag_name"], "v2")
 
     def test_select_release_asset_returns_matching_download(self):
         release = {
@@ -56,6 +78,63 @@ class XrayReleaseTests(unittest.TestCase):
     def test_detect_arch_uses_x86_for_32_bit_python(self):
         with patch.object(xray_release.struct, "calcsize", return_value=4):
             self.assertEqual(xray_release.detect_arch(), "x86")
+
+    def test_xray_metadata_matches_version_and_platform(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            xray_release.write_xray_metadata(output_dir, "linux", "arm64", "v2")
+
+            self.assertTrue(xray_release.installed_xray_matches(output_dir, "linux", "arm64", "v2"))
+            self.assertFalse(xray_release.installed_xray_matches(output_dir, "linux", "x64", "v2"))
+
+    def test_if_missing_uses_existing_binary_when_release_check_is_offline(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            binary_path = os.path.join(output_dir, "xray")
+            with open(binary_path, "wb") as binary_file:
+                binary_file.write(b"existing")
+            with patch.object(xray_release, "resolve_release", side_effect=OSError("offline")):
+                path, version = xray_release.download_xray(
+                    "linux",
+                    "x64",
+                    output_dir,
+                    if_missing=True,
+                )
+
+        self.assertEqual(path, binary_path)
+        self.assertIsNone(version)
+
+    def test_if_missing_reuses_binary_when_latest_metadata_matches(self):
+        release = {"tag_name": "v2", "assets": []}
+        with tempfile.TemporaryDirectory() as output_dir:
+            binary_path = os.path.join(output_dir, "xray")
+            with open(binary_path, "wb") as binary_file:
+                binary_file.write(b"current")
+            xray_release.write_xray_metadata(output_dir, "linux", "x64", "v2")
+            with patch.object(xray_release, "resolve_release", return_value=release):
+                with patch.object(xray_release, "_read_bytes") as read_bytes:
+                    path, version = xray_release.download_xray(
+                        "linux",
+                        "x64",
+                        output_dir,
+                        if_missing=True,
+                    )
+
+        self.assertEqual(path, binary_path)
+        self.assertIsNone(version)
+        read_bytes.assert_not_called()
+
+    def test_request_bytes_retries_transient_network_errors(self):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b"ready"
+        with patch.object(
+            xray_release.urllib.request,
+            "urlopen",
+            side_effect=[xray_release.urllib.error.URLError("timeout"), response],
+        ):
+            with patch.object(xray_release.time, "sleep") as sleep:
+                content = xray_release._request_bytes(object(), timeout=1)
+
+        self.assertEqual(content, b"ready")
+        sleep.assert_called_once_with(1)
 
 
 class BuildReleaseTests(unittest.TestCase):
