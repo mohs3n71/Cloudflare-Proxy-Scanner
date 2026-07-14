@@ -228,7 +228,7 @@ class WorkerMixin:
         results = []
         prefix = "speed-test-cloudflare-proxy-ips" if speed_mode else "working-cloudflare-proxy-ips"
         worker_count = 1 if speed_mode else settings.concurrency
-        stopped = False
+        stopped = self.stop_event.is_set()
         try:
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 futures = {}

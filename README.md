@@ -344,6 +344,16 @@ Direct Python command:
 python -m unittest discover -s tests
 ```
 
+Install the development dependencies and run the same branch-coverage check used by CI:
+
+```bat
+python -m pip install -r requirements-dev.txt
+python -m coverage run -m unittest discover -v
+python -m coverage report
+```
+
+CI requires at least 70% branch coverage. Declarative Tk window construction is excluded, while GUI behavior, workers, runner lifecycle, QR handling, platform integration, and release tooling remain measured.
+
 ### Build A Standalone Executable
 
 The project uses PyInstaller for native one-file builds. Every build downloads the matching official Xray release into `build/runtime`, then bundles it into the application. Xray binaries are not stored in Git.
@@ -794,6 +804,16 @@ run_tests.bat
 ```bat
 python -m unittest discover -s tests
 ```
+
+برای نصب وابستگی‌های توسعه و اجرای همان بررسی پوشش شاخه‌ای که در CI استفاده می‌شود:
+
+```bat
+python -m pip install -r requirements-dev.txt
+python -m coverage run -m unittest discover -v
+python -m coverage report
+```
+
+حداقل پوشش شاخه‌ای در CI برابر ۷۰ درصد است. ساخت ظاهری و توصیفی پنجره Tk محاسبه نمی‌شود، اما رفتار GUI، workerها، چرخه اجرای Xray، QR، یکپارچه‌سازی سیستم‌عامل و ابزارهای انتشار همگی اندازه‌گیری می‌شوند.
 
 ## ساخت فایل اجرایی مستقل
 

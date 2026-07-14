@@ -1,12 +1,21 @@
+import io
 import os
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import MagicMock, patch
 
 from tools import build_release, xray_release
 
 
 class XrayReleaseTests(unittest.TestCase):
+    @staticmethod
+    def archive_bytes(name="xray", content=b"binary"):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as archive:
+            archive.writestr(name, content)
+        return stream.getvalue()
+
     def test_normalize_os_supports_runtime_names(self):
         self.assertEqual(xray_release.normalize_os("win32"), "windows")
         self.assertEqual(xray_release.normalize_os("darwin"), "macos")
@@ -16,6 +25,12 @@ class XrayReleaseTests(unittest.TestCase):
         self.assertEqual(xray_release.normalize_arch("AMD64"), "x64")
         self.assertEqual(xray_release.normalize_arch("i686"), "x86")
         self.assertEqual(xray_release.normalize_arch("aarch64"), "arm64")
+
+    def test_normalizers_reject_unknown_values(self):
+        with self.assertRaisesRegex(ValueError, "operating system"):
+            xray_release.normalize_os("plan9")
+        with self.assertRaisesRegex(ValueError, "architecture"):
+            xray_release.normalize_arch("mips")
 
     def test_xray_asset_name_covers_release_targets(self):
         expected = {
@@ -48,6 +63,10 @@ class XrayReleaseTests(unittest.TestCase):
 
         self.assertEqual(selected["tag_name"], "v2")
 
+    def test_select_latest_published_release_rejects_empty_list(self):
+        with self.assertRaisesRegex(RuntimeError, "published release"):
+            xray_release.select_latest_published_release([])
+
     def test_resolve_release_uses_newest_published_release_for_latest(self):
         releases = [
             {"tag_name": "v1", "published_at": "2026-01-01T00:00:00Z", "draft": False},
@@ -69,6 +88,12 @@ class XrayReleaseTests(unittest.TestCase):
             "https://example.com/xray.zip",
         )
 
+    def test_missing_release_asset_and_archive_binary_raise_clear_errors(self):
+        with self.assertRaisesRegex(RuntimeError, "does not provide"):
+            xray_release.select_release_asset({"tag_name": "v1", "assets": []}, "missing.zip")
+        with self.assertRaisesRegex(RuntimeError, "does not contain"):
+            xray_release.find_archive_member(["README"], "xray")
+
     def test_find_archive_member_accepts_nested_binary(self):
         self.assertEqual(
             xray_release.find_archive_member(["docs/LICENSE", "release/xray", "README"], "xray"),
@@ -85,6 +110,16 @@ class XrayReleaseTests(unittest.TestCase):
 
             self.assertTrue(xray_release.installed_xray_matches(output_dir, "linux", "arm64", "v2"))
             self.assertFalse(xray_release.installed_xray_matches(output_dir, "linux", "x64", "v2"))
+
+    def test_read_xray_metadata_recovers_from_invalid_content(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            path = os.path.join(output_dir, xray_release.XRAY_METADATA_FILE)
+            with open(path, "w", encoding="utf-8") as metadata_file:
+                metadata_file.write("not-json")
+            self.assertEqual(xray_release.read_xray_metadata(output_dir), {})
+            with open(path, "w", encoding="utf-8") as metadata_file:
+                metadata_file.write("[]")
+            self.assertEqual(xray_release.read_xray_metadata(output_dir), {})
 
     def test_if_missing_uses_existing_binary_when_release_check_is_offline(self):
         with tempfile.TemporaryDirectory() as output_dir:
@@ -136,6 +171,54 @@ class XrayReleaseTests(unittest.TestCase):
         self.assertEqual(content, b"ready")
         sleep.assert_called_once_with(1)
 
+    def test_request_bytes_does_not_retry_http_errors(self):
+        error = xray_release.urllib.error.HTTPError("https://example.com", 404, "missing", {}, None)
+        with patch.object(xray_release.urllib.request, "urlopen", side_effect=error) as urlopen:
+            with self.assertRaises(xray_release.urllib.error.HTTPError):
+                xray_release._request_bytes(object(), timeout=1)
+        urlopen.assert_called_once()
+
+    def test_download_xray_extracts_binary_writes_metadata_and_sets_unix_mode(self):
+        release = {
+            "tag_name": "v9",
+            "assets": [
+                {
+                    "name": "Xray-linux-64.zip",
+                    "browser_download_url": "https://example.com/xray.zip",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as output_dir:
+            with patch.object(xray_release, "resolve_release", return_value=release):
+                with patch.object(xray_release, "_read_bytes", return_value=self.archive_bytes("nested/xray", b"new")):
+                    with patch.object(xray_release.os, "chmod") as chmod:
+                        path, version = xray_release.download_xray("linux", "x64", output_dir)
+
+            with open(path, "rb") as binary_file:
+                self.assertEqual(binary_file.read(), b"new")
+            self.assertEqual(version, "v9")
+            self.assertTrue(xray_release.installed_xray_matches(output_dir, "linux", "x64", "v9"))
+            chmod.assert_called_once()
+
+    def test_download_xray_rejects_corrupt_archive_and_missing_tag(self):
+        release = {
+            "tag_name": "v9",
+            "assets": [
+                {
+                    "name": "Xray-windows-64.zip",
+                    "browser_download_url": "https://example.com/xray.zip",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as output_dir:
+            with patch.object(xray_release, "resolve_release", return_value=release):
+                with patch.object(xray_release, "_read_bytes", return_value=b"bad zip"):
+                    with self.assertRaises(zipfile.BadZipFile):
+                        xray_release.download_xray("windows", "x64", output_dir)
+            with patch.object(xray_release, "resolve_release", return_value={"assets": []}):
+                with self.assertRaisesRegex(RuntimeError, "tag name"):
+                    xray_release.download_xray("windows", "x64", output_dir)
+
 
 class BuildReleaseTests(unittest.TestCase):
     def test_release_name_contains_platform_and_architecture(self):
@@ -167,6 +250,50 @@ class BuildReleaseTests(unittest.TestCase):
         self.assertIn("--onefile", command)
         self.assertIn("--windowed", command)
         self.assertIn(f"runtime/xray{os.pathsep}bin/xray", command)
+
+    def test_collect_release_artifact_handles_windows_linux_and_macos(self):
+        with tempfile.TemporaryDirectory() as root:
+            dist_dir = os.path.join(root, "dist")
+            release_dir = os.path.join(root, "release")
+            os.makedirs(dist_dir)
+            for filename in ("app.exe", "app"):
+                with open(os.path.join(dist_dir, filename), "wb") as artifact:
+                    artifact.write(b"app")
+
+            windows = build_release.collect_release_artifact("windows", "app", dist_dir, release_dir)
+            linux = build_release.collect_release_artifact("linux", "app", dist_dir, release_dir)
+            with patch.object(build_release.shutil, "make_archive", return_value="app.zip") as make_archive:
+                macos = build_release.collect_release_artifact("macos", "app", dist_dir, release_dir)
+
+        self.assertTrue(windows.endswith("app.exe"))
+        self.assertTrue(linux.endswith("app"))
+        self.assertEqual(macos, "app.zip")
+        make_archive.assert_called_once()
+
+    def test_build_release_orchestrates_download_pyinstaller_and_collection(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(build_release, "PROJECT_ROOT", root):
+                with patch.object(build_release, "validate_native_target") as validate_target:
+                    with patch.object(build_release, "validate_build_dependencies") as validate_dependencies:
+                        with patch.object(
+                            build_release,
+                            "download_xray",
+                            return_value=("runtime/xray", "v9"),
+                        ) as download:
+                            with patch.object(build_release.subprocess, "run") as run:
+                                with patch.object(
+                                    build_release,
+                                    "collect_release_artifact",
+                                    return_value="release/app.exe",
+                                ) as collect:
+                                    artifact = build_release.build_release("windows", "x64", "latest")
+
+        self.assertEqual(artifact, "release/app.exe")
+        validate_target.assert_called_once_with("windows", "x64")
+        validate_dependencies.assert_called_once_with()
+        download.assert_called_once()
+        run.assert_called_once()
+        collect.assert_called_once()
 
 
 if __name__ == "__main__":
