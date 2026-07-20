@@ -239,17 +239,30 @@ def mbps(byte_count, elapsed_seconds):
     return round((byte_count * 8) / elapsed_seconds / 1_000_000, 2)
 
 
-class PartialUploadError(Exception):
-    def __init__(self, uploaded_bytes, requested_bytes, elapsed_seconds, cause):
-        self.uploaded_bytes = uploaded_bytes
+class PartialTransferError(Exception):
+    def __init__(self, direction, transferred_bytes, requested_bytes, elapsed_seconds, cause):
+        self.direction = direction
+        self.transferred_bytes = transferred_bytes
         self.requested_bytes = requested_bytes
         self.elapsed_seconds = elapsed_seconds
-        self.speed_mbps = mbps(uploaded_bytes, elapsed_seconds)
+        self.speed_mbps = mbps(transferred_bytes, elapsed_seconds)
         self.cause = cause
         super().__init__(
-            f"confirmed {uploaded_bytes}/{requested_bytes} bytes in {elapsed_seconds:.2f}s "
+            f"confirmed {transferred_bytes}/{requested_bytes} bytes in {elapsed_seconds:.2f}s "
             f"({self.speed_mbps} Mbps); {describe_network_error(cause)}"
         )
+
+
+class PartialUploadError(PartialTransferError):
+    def __init__(self, uploaded_bytes, requested_bytes, elapsed_seconds, cause):
+        self.uploaded_bytes = uploaded_bytes
+        super().__init__("upload", uploaded_bytes, requested_bytes, elapsed_seconds, cause)
+
+
+class PartialDownloadError(PartialTransferError):
+    def __init__(self, downloaded_bytes, requested_bytes, elapsed_seconds, cause):
+        self.downloaded_bytes = downloaded_bytes
+        super().__init__("download", downloaded_bytes, requested_bytes, elapsed_seconds, cause)
 
 
 def tls_alpn_for_xray(profile):
@@ -267,14 +280,20 @@ def measure_download(opener, ip=None, byte_count=DEFAULT_SPEED_TEST_BYTES, timeo
         headers={"User-Agent": "Mozilla/5.0"},
     )
     total_bytes = 0
-    start = time.time()
-    with opener.open(req, timeout=timeout_ms / 1000) as resp:
-        while True:
-            chunk = resp.read(64 * 1024)
-            if not chunk:
-                break
-            total_bytes += len(chunk)
-    return mbps(total_bytes, time.time() - start)
+    start = time.monotonic()
+    try:
+        with opener.open(req, timeout=timeout_ms / 1000) as resp:
+            while True:
+                chunk = resp.read(64 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+    except Exception as exc:
+        elapsed_seconds = time.monotonic() - start
+        if total_bytes > 0 and is_timeout_error(exc):
+            raise PartialDownloadError(total_bytes, byte_count, elapsed_seconds, exc) from exc
+        raise
+    return mbps(total_bytes, time.monotonic() - start)
 
 
 def measure_upload(opener, ip=None, byte_count=DEFAULT_SPEED_TEST_BYTES, timeout_ms=DEFAULT_SPEED_TEST_TIMEOUT_MS):
@@ -362,7 +381,7 @@ def run_speed_tests_with_diagnostics(
                 byte_count=speed_test_bytes,
                 timeout_ms=speed_timeout_ms,
             )
-        except PartialUploadError as exc:
+        except PartialTransferError as exc:
             speeds[key] = exc.speed_mbps
             speeds.setdefault("speed_warnings", []).append(f"{label} partial: {exc}")
         except Exception as exc:

@@ -258,6 +258,8 @@ If a speed test fails:
 
 Upload tests first confirm a 256 KiB probe and then upload the remaining requested data under one overall timeout. If the remainder times out, the confirmed bytes are used to show a conservative partial upload speed and a warning is written to the log. A failure before the probe is confirmed still produces `-1`.
 
+Download tests count each received chunk. If a download times out after data has arrived, those confirmed bytes are used to show a partial download speed with a log warning. A timeout before any data arrives still produces `-1`.
+
 Speed-test outputs are saved to:
 
 ```text
@@ -717,6 +719,8 @@ https://speed.cloudflare.com
 - دلیل خطا داخل لاگ GUI و فایل لاگ نوشته می‌شود.
 
 در تست آپلود ابتدا یک بخش ۲۵۶ کیلوبایتی تأیید می‌شود و سپس باقی داده با همان مهلت زمانی کلی ارسال می‌شود. اگر ارسال بخش باقی‌مانده به پایان نرسد، سرعت تقریبی بر اساس داده تأییدشده نمایش داده می‌شود و در لاگ هشدار ثبت می‌شود. اگر همان بخش اولیه هم تأیید نشود، مقدار `-1` نمایش داده خواهد شد.
+
+در تست دانلود، حجم هر بخش دریافت‌شده شمرده می‌شود. اگر پس از دریافت مقداری داده مهلت تست تمام شود، سرعت تقریبی دانلود بر اساس همان داده نمایش داده شده و در لاگ هشدار ثبت می‌شود. اگر پیش از دریافت هرگونه داده مهلت تمام شود، مقدار `-1` نمایش داده خواهد شد.
 
 خروجی تست سرعت اینجا ذخیره می‌شود:
 

@@ -23,7 +23,10 @@ class FakeResponse:
     def read(self, size=-1):
         if not self.chunks:
             return b""
-        return self.chunks.pop(0)
+        chunk = self.chunks.pop(0)
+        if isinstance(chunk, BaseException):
+            raise chunk
+        return chunk
 
 
 class FakeOpener:
@@ -211,12 +214,34 @@ class XrayTests(unittest.TestCase):
     def test_measure_download_reads_all_chunks(self):
         opener = FakeOpener([FakeResponse([b"a" * 100, b"b" * 100, b""])])
 
-        with patch.object(xray.time, "time", side_effect=[0, 2]):
+        with patch.object(xray.time, "monotonic", side_effect=[0, 2]):
             result = xray.measure_download(opener)
 
         req, _ = opener.requests[0]
         self.assertEqual(result, 0.0)
         self.assertEqual(req.full_url, "https://speed.cloudflare.com/__down?bytes=1048576")
+
+    def test_measure_download_reports_received_bytes_after_timeout(self):
+        received_bytes = 64 * 1024
+        opener = FakeOpener([FakeResponse([b"a" * received_bytes, TimeoutError("slow download")])])
+
+        with patch.object(xray.time, "monotonic", side_effect=[0, 5]):
+            with self.assertRaises(xray.PartialDownloadError) as raised:
+                xray.measure_download(opener, byte_count=1024 * 1024, timeout_ms=7000)
+
+        error = raised.exception
+        self.assertEqual(error.downloaded_bytes, received_bytes)
+        self.assertEqual(error.requested_bytes, 1024 * 1024)
+        self.assertEqual(error.speed_mbps, xray.mbps(received_bytes, 5))
+
+    def test_download_diagnostics_keep_partial_speed_as_warning(self):
+        partial = xray.PartialDownloadError(64 * 1024, 1024 * 1024, 5, TimeoutError("slow"))
+        with patch.object(xray, "measure_download", side_effect=partial):
+            speeds, errors = xray.run_speed_tests_with_diagnostics(Mock(), "download", "ip")
+
+        self.assertEqual(speeds["download_mbps"], partial.speed_mbps)
+        self.assertIn("download partial", speeds["speed_warnings"][0])
+        self.assertEqual(errors, [])
 
     def test_measure_upload_posts_configured_bytes(self):
         opener = FakeOpener([FakeResponse([b"ok"])])
