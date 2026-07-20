@@ -1,11 +1,28 @@
 import json
 import os
+import queue
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from proxy_tester import gui_about
+
+
+class FakeVar:
+    def __init__(self):
+        self.value = None
+
+    def set(self, value):
+        self.value = value
+
+
+class FakeButton:
+    def __init__(self):
+        self.state = None
+
+    def configure(self, **kwargs):
+        self.state = kwargs.get("state", self.state)
 
 
 class AboutTests(unittest.TestCase):
@@ -63,6 +80,66 @@ class AboutTests(unittest.TestCase):
         ), patch.object(gui_about.messagebox, "showerror") as showerror:
             app._open_github_repository()
         showerror.assert_called_once()
+
+    def test_available_update_opens_release_download_page(self):
+        app = object.__new__(gui_about.AboutMixin)
+        app.update_button = FakeButton()
+        app.update_status_var = FakeVar()
+        app._open_web_page = Mock(return_value=True)
+        result = {"available": True, "version": "v1.0.4", "url": "https://example.test/release"}
+
+        app._handle_update_check_result(result)
+
+        self.assertEqual(app.update_button.state, "normal")
+        self.assertIn("v1.0.4", app.update_status_var.value)
+        app._open_web_page.assert_called_once_with(
+            "https://example.test/release",
+            "Unable to Open Download Page",
+        )
+
+    def test_current_version_reports_no_update(self):
+        app = object.__new__(gui_about.AboutMixin)
+        app.update_button = FakeButton()
+        app.update_status_var = FakeVar()
+
+        with patch.object(gui_about.messagebox, "showinfo") as showinfo:
+            app._handle_update_check_result(
+                {"available": False, "version": "v1.0.4", "url": "https://example.test/release"}
+            )
+
+        self.assertIn("latest version", app.update_status_var.value)
+        showinfo.assert_called_once()
+
+    def test_update_error_restores_button(self):
+        app = object.__new__(gui_about.AboutMixin)
+        app.update_button = FakeButton()
+        app.update_status_var = FakeVar()
+
+        with patch.object(gui_about.messagebox, "showerror") as showerror:
+            app._handle_update_check_error("offline")
+
+        self.assertEqual(app.update_button.state, "normal")
+        self.assertIn("Unable", app.update_status_var.value)
+        showerror.assert_called_once()
+
+    def test_update_worker_queues_success(self):
+        app = object.__new__(gui_about.AboutMixin)
+        app.events = queue.Queue()
+        result = {"available": False, "version": "v1.0.4", "url": "https://example.test/release"}
+
+        with patch.object(gui_about, "check_for_update", return_value=result):
+            app._update_check_worker()
+
+        self.assertEqual(app.events.get_nowait(), ("update_check_result", result))
+
+    def test_update_worker_queues_failure(self):
+        app = object.__new__(gui_about.AboutMixin)
+        app.events = queue.Queue()
+
+        with patch.object(gui_about, "check_for_update", side_effect=OSError("offline")):
+            app._update_check_worker()
+
+        self.assertEqual(app.events.get_nowait(), ("update_check_error", "offline"))
 
 
 if __name__ == "__main__":

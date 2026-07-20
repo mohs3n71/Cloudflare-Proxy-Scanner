@@ -2,10 +2,13 @@ import json
 import os
 import re
 import subprocess
+import threading
+import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
 
 from .paths import XRAY_EXE
+from .update_checker import check_for_update
 from .version import APP_VERSION, GITHUB_URL
 
 
@@ -77,16 +80,54 @@ class AboutMixin:
         ttk.Button(content, text="Open GitHub Repository", command=self._open_github_repository).grid(
             row=4, column=0, columnspan=2, sticky="ew", pady=(24, 0)
         )
+        self.update_status_var = tk.StringVar(value="")
+        self.update_button = ttk.Button(content, text="Check for Updates", command=self.check_for_updates)
+        self.update_button.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        ttk.Label(content, textvariable=self.update_status_var).grid(
+            row=6, column=0, columnspan=2, pady=(8, 0)
+        )
+
+    def _open_web_page(self, url, title):
+        try:
+            opened = webbrowser.open_new_tab(url)
+        except (OSError, webbrowser.Error) as exc:
+            messagebox.showerror(title, str(exc), parent=self)
+            return False
+        if not opened:
+            messagebox.showerror(title, f"Open this address in your browser:\n{url}", parent=self)
+            return False
+        return True
 
     def _open_github_repository(self):
+        self._open_web_page(GITHUB_URL, "Unable to Open GitHub")
+
+    def check_for_updates(self):
+        self.update_button.configure(state="disabled")
+        self.update_status_var.set("Checking for updates...")
+        threading.Thread(target=self._update_check_worker, daemon=True).start()
+
+    def _update_check_worker(self):
         try:
-            opened = webbrowser.open_new_tab(GITHUB_URL)
-        except (OSError, webbrowser.Error) as exc:
-            messagebox.showerror("Unable to Open GitHub", str(exc), parent=self)
+            result = check_for_update(APP_VERSION)
+        except Exception as exc:
+            self.events.put(("update_check_error", str(exc)))
             return
-        if not opened:
-            messagebox.showerror(
-                "Unable to Open GitHub",
-                f"Open this address in your browser:\n{GITHUB_URL}",
-                parent=self,
-            )
+        self.events.put(("update_check_result", result))
+
+    def _handle_update_check_error(self, message):
+        self.update_button.configure(state="normal")
+        self.update_status_var.set("Unable to check for updates.")
+        messagebox.showerror("Update Check Failed", message, parent=self)
+
+    def _handle_update_check_result(self, result):
+        self.update_button.configure(state="normal")
+        if result["available"]:
+            self.update_status_var.set(f'{result["version"]} is available. Opening download page...')
+            self._open_web_page(result["url"], "Unable to Open Download Page")
+            return
+        self.update_status_var.set(f'You are using the latest version ({_display_version(APP_VERSION)}).')
+        messagebox.showinfo(
+            "No Update Available",
+            f"You are using the latest version ({_display_version(APP_VERSION)}).",
+            parent=self,
+        )

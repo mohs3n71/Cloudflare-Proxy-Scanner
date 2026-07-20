@@ -449,6 +449,10 @@ class GuiTests(unittest.TestCase):
         app.start_button = FakeButton()
         app.speed_button = FakeButton()
         app.proxy_config_button = FakeButton()
+        app.runner_start_button = FakeButton()
+        app.runner_export_button = FakeButton()
+        app.runner_process = None
+        app._set_runner_speed_state = Mock()
 
         with patch.object(gui_config, "config_files", return_value=[]):
             app._load_configs()
@@ -460,6 +464,8 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(app.start_button.state, "disabled")
         self.assertEqual(app.speed_button.state, "disabled")
         self.assertEqual(app.proxy_config_button.state, "disabled")
+        self.assertEqual(app.runner_start_button.state, "disabled")
+        self.assertEqual(app.runner_export_button.state, "disabled")
 
     def test_set_running_disables_output_selector_and_refresh_button(self):
         app = object.__new__(gui.ProxyTesterGui)
@@ -790,6 +796,7 @@ class GuiTests(unittest.TestCase):
         app.runner_upload_button = FakeButton()
         app.runner_fragment_scan_button = FakeButton()
         app.runner_fragment_scan_stop_button = FakeButton()
+        app.runner_apply_best_button = FakeButton()
         app.runner_speed_size_entry = FakeButton()
         app.runner_speed_timeout_entry = FakeButton()
 
@@ -799,12 +806,14 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(app.runner_upload_button.state, "disabled")
         self.assertEqual(app.runner_fragment_scan_button.state, "disabled")
         self.assertEqual(app.runner_fragment_scan_stop_button.state, "normal")
+        self.assertEqual(app.runner_apply_best_button.state, "disabled")
         self.assertEqual(app.runner_speed_size_entry.state, "disabled")
         self.assertEqual(app.runner_speed_timeout_entry.state, "disabled")
 
         app._set_runner_speed_state(False)
 
         self.assertEqual(app.runner_fragment_scan_stop_button.state, "disabled")
+        self.assertEqual(app.runner_apply_best_button.state, "normal")
 
     def test_runner_speed_settings_uses_runner_specific_values(self):
         app = object.__new__(gui.ProxyTesterGui)

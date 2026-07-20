@@ -1,5 +1,7 @@
 import os
 import queue
+import json
+import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
@@ -227,12 +229,16 @@ class GuiWorkerExtendedTests(unittest.TestCase):
         app._set_ip_active = Mock()
         app._append_runner_log = Mock()
         app._handle_runner_speed_result = Mock()
+        app._handle_update_check_result = Mock()
+        app._handle_update_check_error = Mock()
         app.after = Mock()
         app.events.put(("result", 1, 2, {"ip": "1.1.1.1", "ok": False, "error": "x", "speed_debug": "d"}, True))
         app.events.put(("active_start", "1.1.1.1"))
         app.events.put(("active_done", "1.1.1.1"))
         app.events.put(("runner_log", "line"))
         app.events.put(("runner_speed_result", "download", {"ok": True}))
+        app.events.put(("update_check_result", {"available": False}))
+        app.events.put(("update_check_error", "offline"))
 
         app._drain_events()
 
@@ -241,6 +247,8 @@ class GuiWorkerExtendedTests(unittest.TestCase):
         self.assertEqual(app._set_ip_active.call_count, 2)
         app._append_runner_log.assert_called_once_with("line")
         app._handle_runner_speed_result.assert_called_once()
+        app._handle_update_check_result.assert_called_once_with({"available": False})
+        app._handle_update_check_error.assert_called_once_with("offline")
         app.after.assert_called_once_with(100, app._drain_events)
 
     def test_drain_events_logs_partial_speed_warning(self):
@@ -312,6 +320,64 @@ class GuiRunnerExtendedTests(unittest.TestCase):
             self.assertIsNone(app._runner_port())
             self.assertIsNone(app._runner_speed_settings())
         self.assertEqual(showerror.call_count, 2)
+
+    def test_current_xray_runner_config_includes_enabled_fragment(self):
+        app = self.make_runner()
+        profile = SimpleNamespace(name="demo.config")
+        app._selected_profile = Mock(return_value=profile)
+        app.fragment_enabled_var.set(True)
+        app.fragment_packets_var = FakeVar("tlshello")
+        app.fragment_interval_var = FakeVar("1-2")
+        app.fragment_length_var = FakeVar("5-10")
+        expected_config = {"inbounds": [], "outbounds": []}
+
+        with patch.object(gui_runner, "make_xray_runner_config", return_value=expected_config) as make_config:
+            result = app._current_xray_runner_config()
+
+        fragment = {"packets": "tlshello", "interval": "1-2", "length": "5-10"}
+        self.assertEqual(result["config"], expected_config)
+        self.assertEqual(result["fragment"], fragment)
+        make_config.assert_called_once_with("1.1.1.1", 1080, "127.0.0.1", profile, fragment)
+
+    def test_export_xray_config_writes_complete_json(self):
+        app = self.make_runner()
+        app._append_runner_log = Mock()
+        config = {"inbounds": [{"port": 1080}], "outbounds": [{"tag": "fragment"}]}
+        app._current_xray_runner_config = Mock(
+            return_value={
+                "ip": "1.1.1.1",
+                "profile": SimpleNamespace(name="demo.config"),
+                "config": config,
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "runner.json")
+            with patch.object(gui_runner.filedialog, "asksaveasfilename", return_value=path), patch.object(
+                gui_runner.messagebox, "showinfo"
+            ) as showinfo:
+                app.export_xray_config()
+            with open(path, "r", encoding="utf-8") as config_file:
+                saved = json.load(config_file)
+
+        self.assertEqual(saved, config)
+        app._append_runner_log.assert_called_once()
+        showinfo.assert_called_once()
+
+    def test_export_xray_config_does_nothing_when_dialog_is_cancelled(self):
+        app = self.make_runner()
+        app._current_xray_runner_config = Mock(
+            return_value={
+                "ip": "1.1.1.1",
+                "profile": SimpleNamespace(name="demo.config"),
+                "config": {},
+            }
+        )
+        with patch.object(gui_runner.filedialog, "asksaveasfilename", return_value=""), patch(
+            "builtins.open"
+        ) as open_file:
+            app.export_xray_config()
+        open_file.assert_not_called()
 
     def test_start_xray_runner_cleans_up_after_process_failure(self):
         app = self.make_runner()

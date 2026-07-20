@@ -159,16 +159,23 @@ The Windows GUI launcher uses `pythonw.exe`, so it opens the GUI without keeping
 - Fragment defaults are `Packets: 1-3`, `Interval: 1-1`, and `Length: 1-7`.
 - Disable `Enable fragment` to run the selected IP without fragment settings.
 - Use `Start Xray` and `Stop Xray` to control the local runner.
+- Use `Export Xray Config` to save the complete runner configuration as JSON, including fragmentation when enabled.
 - While Xray is running, IP, port, sharing, and fragment controls are locked.
 - Set runner speed-test size and timeout in this tab.
 - Use `Test Download` or `Test Upload` to test the selected runner IP. Results are shown in separate result boxes.
 - Use `Start Fragment Scan` to try 24 mode-specific fragment variations, or custom variations. Upload scans favor larger slices and shorter delays to reduce fragmentation overhead.
-- Use `Stop Scan` to stop the fragment scanner and kill the active Xray test process immediately.
+- Use `Stop Fragment Scan` to stop the fragment scanner and kill the active Xray test process immediately.
 - Fragment scan results include ping plus speed, are shown in a sortable table, are saved as CSV in `output`, and the best result is saved per IP/config/mode for later reuse.
 - Fragment scan CSVs are not shown in the first tab's saved-output selector because they are not normal IP scan/speed-test outputs.
 - `Apply Best Saved Result` applies the saved fragment and restarts Xray automatically if the runner is already active.
+- `Apply Best Saved Result` is disabled while a fragment scan is active.
 - Custom fragment variations can be entered manually or loaded from a file. Supported line formats are `packets,interval,length` and `packets=..., interval=..., length=...`; JSON arrays of objects are also accepted.
 - Xray stdout/stderr logs are shown live in the runner tab.
+
+**About**
+
+- Shows the application version, bundled Xray version, and GitHub repository.
+- `Check for Updates` compares the installed version with the latest GitHub release and opens its download page when an update is available.
 
 ### Table Actions
 
@@ -635,6 +642,16 @@ chmod +x run_gui.sh
 - لود شدن IPها داخل جدول.
 - تست سرعت روی کل خروجی انتخاب‌شده.
 - ساخت کانفیگ جدید از خروجی انتخاب‌شده.
+
+**Xray Runner**
+
+- با دکمه `Export Xray Config` می‌توانید کانفیگ کامل Xray را با فرمت JSON ذخیره کنید. اگر فرگمنت فعال باشد، تنظیمات آن نیز داخل فایل قرار می‌گیرد.
+- هنگام اجرای اسکن فرگمنت، دکمه `Apply Best Saved Result` تا پایان یا توقف اسکن غیرفعال می‌ماند.
+
+**About**
+
+- نسخه برنامه، نسخه Xray و لینک مخزن GitHub را نمایش می‌دهد.
+- دکمه `Check for Updates` آخرین نسخه منتشرشده را بررسی می‌کند و در صورت وجود نسخه جدید، صفحه دانلود را باز می‌کند.
 
 ## کار با جدول
 

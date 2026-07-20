@@ -6,7 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .paths import XRAY_EXE
+from .paths import OUTPUT_DIR, XRAY_EXE
 from .settings import (
     DEFAULT_FRAGMENT_ENABLED,
     RunnerSettings,
@@ -16,7 +16,7 @@ from .settings import (
     SYSTEM_PROXY_SET,
     save_runner_settings,
 )
-from .storage import get_best_fragment, save_best_fragment, save_fragment_scan_results
+from .storage import get_best_fragment, safe_filename_part, save_best_fragment, save_fragment_scan_results
 from . import system_proxy
 from .xray import make_xray_runner_config, test_ip
 
@@ -241,6 +241,7 @@ class RunnerMixin:
         buttons.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(12, 0))
         buttons.columnconfigure(0, weight=1)
         buttons.columnconfigure(1, weight=1)
+        buttons.columnconfigure(2, weight=1)
         self.runner_start_button = ttk.Button(buttons, text="Start Xray", command=self.start_xray_runner)
         self.runner_start_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.runner_stop_button = ttk.Button(
@@ -250,6 +251,12 @@ class RunnerMixin:
             state="disabled",
         )
         self.runner_stop_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        self.runner_export_button = ttk.Button(
+            buttons,
+            text="Export Xray Config",
+            command=self.export_xray_config,
+        )
+        self.runner_export_button.grid(row=0, column=2, sticky="ew", padx=(6, 0))
 
         ttk.Label(runner_box, textvariable=self.runner_status_var).grid(
             row=5,
@@ -330,11 +337,12 @@ class RunnerMixin:
             text="Edit Variations",
             command=self.open_custom_fragment_variations_modal,
         ).grid(row=0, column=4, sticky="e", padx=(8, 0))
-        ttk.Button(
+        self.runner_apply_best_button = ttk.Button(
             fragment_scan_box,
             text="Apply Best Saved Result",
             command=self.apply_saved_best_fragment,
-        ).grid(row=0, column=5, sticky="e", padx=(8, 0))
+        )
+        self.runner_apply_best_button.grid(row=0, column=5, sticky="e", padx=(8, 0))
         ttk.Label(fragment_scan_box, textvariable=self.runner_fragment_scan_result_var).grid(
             row=1,
             column=0,
@@ -414,6 +422,8 @@ class RunnerMixin:
             self.runner_fragment_scan_button.configure(state=state)
         if "runner_fragment_scan_stop_button" in self.__dict__:
             self.runner_fragment_scan_stop_button.configure(state="normal" if running else "disabled")
+        if "runner_apply_best_button" in self.__dict__:
+            self.runner_apply_best_button.configure(state=state)
         if "runner_speed_size_entry" in self.__dict__:
             self.runner_speed_size_entry.configure(state=state)
         if "runner_speed_timeout_entry" in self.__dict__:
@@ -470,25 +480,67 @@ class RunnerMixin:
             return None
         return int(size_mb * 1024 * 1024), timeout_ms
 
-    def start_xray_runner(self, ip=None):
+    def _current_xray_runner_config(self, ip=None):
         profile = self._selected_profile()
         if profile is None:
-            return
+            return None
         if ip:
             self.runner_ip_var.set(ip)
         ip = self.runner_ip_var.get().strip()
         if not ip:
             messagebox.showerror("Target IP Required", "Enter or select an IP address first.")
-            return
+            return None
         port = self._runner_port()
         fragment = self._runner_fragment_settings()
         if port is None or fragment is None:
+            return None
+        listen = "0.0.0.0" if self.runner_share_var.get() else "127.0.0.1"
+        return {
+            "ip": ip,
+            "port": port,
+            "listen": listen,
+            "fragment": fragment,
+            "config": make_xray_runner_config(ip, port, listen, profile, fragment),
+            "profile": profile,
+        }
+
+    def export_xray_config(self):
+        runner_config = self._current_xray_runner_config()
+        if runner_config is None:
             return
+        profile_name = safe_filename_part(runner_config["profile"].name)
+        ip_name = safe_filename_part(runner_config["ip"])
+        path = filedialog.asksaveasfilename(
+            title="Export Xray Configuration",
+            initialdir=OUTPUT_DIR,
+            initialfile=f"xray-{profile_name}-{ip_name}.json",
+            defaultextension=".json",
+            filetypes=(("JSON files", "*.json"), ("All files", "*.*")),
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as config_file:
+                json.dump(runner_config["config"], config_file, indent=2)
+                config_file.write("\n")
+        except OSError as exc:
+            messagebox.showerror("Export Failed", str(exc))
+            return
+        self._append_runner_log(f"Exported Xray configuration to {path}")
+        messagebox.showinfo("Xray Configuration Exported", f"Saved configuration to:\n{path}")
+
+    def start_xray_runner(self, ip=None):
+        runner_config = self._current_xray_runner_config(ip)
+        if runner_config is None:
+            return
+        ip = runner_config["ip"]
+        port = runner_config["port"]
+        listen = runner_config["listen"]
+        fragment = runner_config["fragment"]
         if self._runner_is_active():
             self.stop_xray_runner()
 
-        listen = "0.0.0.0" if self.runner_share_var.get() else "127.0.0.1"
-        config = make_xray_runner_config(ip, port, listen, profile, fragment)
+        config = runner_config["config"]
         temp_dir = tempfile.TemporaryDirectory(prefix="xray-runner-")
         config_path = os.path.join(temp_dir.name, "config.json")
         try:

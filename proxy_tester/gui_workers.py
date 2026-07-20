@@ -369,6 +369,12 @@ class WorkerMixin:
                         results,
                         stopped,
                     )
+                elif kind == "update_check_result":
+                    _, result = event
+                    self._handle_update_check_result(result)
+                elif kind == "update_check_error":
+                    _, message = event
+                    self._handle_update_check_error(message)
                 elif kind == "done":
                     self._handle_done_event(*event[1:])
                 elif kind == "error":

@@ -60,6 +60,8 @@ class ConfigMixin:
         if "runner_start_button" in self.__dict__:
             runner_state = state if not self._runner_is_active() else "disabled"
             self.runner_start_button.configure(state=runner_state)
+            if "runner_export_button" in self.__dict__:
+                self.runner_export_button.configure(state=state)
             self._set_runner_speed_state(False)
 
     def open_add_config_modal(self):
