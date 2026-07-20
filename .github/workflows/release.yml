@@ -76,6 +76,14 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller
 
+      - name: Verify application version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: >-
+          python -c "import os; from proxy_tester.version import APP_VERSION;
+          tag = os.environ['RELEASE_TAG']; expected = f'v{APP_VERSION}';
+          assert tag == expected, f'Release tag {tag!r} does not match application version {expected!r}'"
+
       - name: Build standalone application
         env:
           GH_TOKEN: ${{ github.token }}

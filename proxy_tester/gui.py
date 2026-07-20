@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import cloudflare
+from .gui_about import AboutMixin
 from .gui_config import ConfigMixin
 from .gui_runner import RunnerMixin
 from .gui_table import TableMixin
@@ -22,7 +23,7 @@ LEFT_PANEL_MIN_WIDTH = 450
 LEFT_PANEL_MIN_HEIGHT = 990
 
 
-class ProxyTesterGui(ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
+class ProxyTesterGui(AboutMixin, ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
     def __init__(self):
         super().__init__()
         ensure_project_dirs()
@@ -71,8 +72,10 @@ class ProxyTesterGui(ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
 
         scanner_tab = ttk.Frame(self.notebook)
         self.runner_tab = ttk.Frame(self.notebook)
+        self.about_tab = ttk.Frame(self.notebook)
         self.notebook.add(scanner_tab, text="IP Scanner")
         self.notebook.add(self.runner_tab, text="Xray Runner")
+        self.notebook.add(self.about_tab, text="About")
 
         scanner_tab.columnconfigure(0, weight=0)
         scanner_tab.columnconfigure(1, weight=1)
@@ -328,6 +331,7 @@ class ProxyTesterGui(ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
         self.log = tk.Text(right, height=12, wrap="word")
         self.log.grid(row=3, column=0, sticky="nsew")
         self._build_runner_tab(self.runner_tab)
+        self._build_about_tab(self.about_tab)
 
 def main():
     app = ProxyTesterGui()

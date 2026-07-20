@@ -32,6 +32,7 @@ The project also provides a CLI, Windows/Linux/macOS launch scripts, multi-platf
 - Generates replacement configs using the working IPs.
 - Saves GUI logs to `logs`.
 - Can publish standalone Windows, Linux, and macOS releases for x64, x86, and ARM64 targets where supported.
+- Includes an About tab with the application version, bundled Xray version, and project GitHub link.
 
 ### Supported Config Types
 
@@ -509,6 +510,7 @@ configs/your-config.config
 
 ## این برنامه چه کاری انجام می‌دهد؟
 
+- تب «درباره برنامه» شماره نسخه برنامه، نسخه دقیق Xray و لینک مخزن GitHub را نمایش می‌دهد.
 - از رنج‌های IPv4 کلادفلر IP رندوم می‌سازد.
 - برای هر IP یک پردازش موقت Xray اجرا می‌کند.
 - تست می‌کند کانفیگ انتخاب‌شده با آن IP کار می‌کند یا نه.
