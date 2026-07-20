@@ -243,6 +243,34 @@ class GuiWorkerExtendedTests(unittest.TestCase):
         app._handle_runner_speed_result.assert_called_once()
         app.after.assert_called_once_with(100, app._drain_events)
 
+    def test_drain_events_logs_partial_speed_warning(self):
+        app = self.make_worker()
+        app.progress = FakeProgress()
+        app.status_var = FakeVar()
+        app._upsert_table_result = Mock()
+        app._log = Mock()
+        app.after = Mock()
+        app.events.put(
+            (
+                "result",
+                1,
+                1,
+                {
+                    "ip": "1.1.1.1",
+                    "ok": True,
+                    "ms": 20,
+                    "upload_mbps": 0.42,
+                    "speed_warnings": ["upload partial: confirmed 262144 bytes"],
+                },
+                True,
+            )
+        )
+
+        app._drain_events()
+
+        self.assertEqual(app._log.call_count, 2)
+        self.assertIn("WARN 1.1.1.1 upload partial", app._log.call_args_list[1].args[0])
+
 
 class GuiRunnerExtendedTests(unittest.TestCase):
     def make_runner(self):

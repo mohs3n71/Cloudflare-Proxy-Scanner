@@ -333,6 +333,8 @@ class WorkerMixin:
 
                     if result["ok"]:
                         self._log(f"PASS {result['ip']} {result['ms']}ms")
+                        for warning in result.get("speed_warnings", []):
+                            self._log(f"WARN {result['ip']} {warning}")
                     else:
                         self._log(f"FAIL {result['ip']} {result.get('error', '')}")
                         if result.get("speed_debug"):

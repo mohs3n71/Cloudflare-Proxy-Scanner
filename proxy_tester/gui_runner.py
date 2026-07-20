@@ -791,6 +791,8 @@ class RunnerMixin:
         target_var.set(f"{value} Mbps" if value != -1 else "-1")
         if result.get("ok"):
             self._append_runner_log(f"{speed_mode.title()} speed test passed: {value} Mbps")
+            for warning in result.get("speed_warnings", []):
+                self._append_runner_log(f"WARNING {warning}")
         else:
             self._append_runner_log(f"{speed_mode.title()} speed test failed: {result.get('error', '')}")
             if result.get("speed_debug"):

@@ -18,6 +18,7 @@ DOWNLOAD_TEST_URL = f"{SPEED_TEST_BASE_URL}/__down"
 UPLOAD_TEST_URL = "https://speed.cloudflare.com/__up"
 DEFAULT_SPEED_TEST_BYTES = 1 * 1024 * 1024
 DEFAULT_SPEED_TEST_TIMEOUT_MS = 7000
+UPLOAD_CONFIRMATION_PROBE_BYTES = 256 * 1024
 
 
 def speed_url(base_url, byte_count):
@@ -63,6 +64,14 @@ def describe_network_error(exc):
     elif isinstance(exc, urllib.error.URLError):
         details.append(f"reason={exc.reason}")
     return " | ".join(details)
+
+
+def is_timeout_error(exc):
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        return is_timeout_error(exc.reason)
+    return False
 
 
 def free_port():
@@ -230,6 +239,19 @@ def mbps(byte_count, elapsed_seconds):
     return round((byte_count * 8) / elapsed_seconds / 1_000_000, 2)
 
 
+class PartialUploadError(Exception):
+    def __init__(self, uploaded_bytes, requested_bytes, elapsed_seconds, cause):
+        self.uploaded_bytes = uploaded_bytes
+        self.requested_bytes = requested_bytes
+        self.elapsed_seconds = elapsed_seconds
+        self.speed_mbps = mbps(uploaded_bytes, elapsed_seconds)
+        self.cause = cause
+        super().__init__(
+            f"confirmed {uploaded_bytes}/{requested_bytes} bytes in {elapsed_seconds:.2f}s "
+            f"({self.speed_mbps} Mbps); {describe_network_error(cause)}"
+        )
+
+
 def tls_alpn_for_xray(profile):
     values = [item.strip() for item in profile.alpn.split(",") if item.strip()]
     if profile.network == "ws" and "http/1.1" in values:
@@ -258,20 +280,38 @@ def measure_download(opener, ip=None, byte_count=DEFAULT_SPEED_TEST_BYTES, timeo
 def measure_upload(opener, ip=None, byte_count=DEFAULT_SPEED_TEST_BYTES, timeout_ms=DEFAULT_SPEED_TEST_TIMEOUT_MS):
     if ip:
         print(colors.info(f"Speed test: uploading through {ip}..."), flush=True)
-    data = b"0" * byte_count
-    req = urllib.request.Request(
-        speed_url(UPLOAD_TEST_URL, byte_count),
-        data=data,
-        headers={
-            "Content-Type": "text/plain;charset=UTF-8",
-            "User-Agent": "Mozilla/5.0",
-        },
-        method="POST",
-    )
-    start = time.time()
-    with opener.open(req, timeout=timeout_ms / 1000) as resp:
-        resp.read(1024)
-    return mbps(len(data), time.time() - start)
+    start = time.monotonic()
+    deadline = start + (timeout_ms / 1000)
+    uploaded_bytes = 0
+    probe_bytes = min(byte_count, UPLOAD_CONFIRMATION_PROBE_BYTES)
+    request_sizes = [probe_bytes]
+    if probe_bytes < byte_count:
+        request_sizes.append(byte_count - probe_bytes)
+
+    try:
+        for request_bytes in request_sizes:
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                raise TimeoutError("upload deadline reached")
+            req = urllib.request.Request(
+                speed_url(UPLOAD_TEST_URL, request_bytes),
+                data=b"0" * request_bytes,
+                headers={
+                    "Content-Type": "text/plain;charset=UTF-8",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                method="POST",
+            )
+            with opener.open(req, timeout=remaining_seconds) as resp:
+                resp.read(1024)
+            uploaded_bytes += request_bytes
+    except Exception as exc:
+        elapsed_seconds = time.monotonic() - start
+        if uploaded_bytes > 0 and is_timeout_error(exc):
+            raise PartialUploadError(uploaded_bytes, byte_count, elapsed_seconds, exc) from exc
+        raise
+
+    return mbps(uploaded_bytes, time.monotonic() - start)
 
 
 def run_speed_tests(
@@ -322,6 +362,9 @@ def run_speed_tests_with_diagnostics(
                 byte_count=speed_test_bytes,
                 timeout_ms=speed_timeout_ms,
             )
+        except PartialUploadError as exc:
+            speeds[key] = exc.speed_mbps
+            speeds.setdefault("speed_warnings", []).append(f"{label} partial: {exc}")
         except Exception as exc:
             speeds[key] = -1
             errors.append(f"{label} failed: {describe_network_error(exc)}")
@@ -405,6 +448,8 @@ def test_ip(
                     speed_timeout_ms,
                 )
                 result.update(speed_results)
+                for warning in result.get("speed_warnings", []):
+                    print(colors.warning(f"Speed test warning: {warning}"), flush=True)
                 if speed_errors:
                     speed_debug = speed_request_debug(speed_mode, speed_test_bytes, speed_timeout_ms)
                     result["ok"] = False

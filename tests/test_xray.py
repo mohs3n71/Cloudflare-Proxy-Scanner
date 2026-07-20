@@ -36,7 +36,10 @@ class FakeOpener:
         self.requests.append((req, timeout))
         if self.error:
             raise self.error
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
 
 class FakeProc:
@@ -217,15 +220,58 @@ class XrayTests(unittest.TestCase):
 
     def test_measure_upload_posts_configured_bytes(self):
         opener = FakeOpener([FakeResponse([b"ok"])])
+        byte_count = 128 * 1024
 
-        with patch.object(xray.time, "time", side_effect=[0, 4]):
-            result = xray.measure_upload(opener)
+        with patch.object(xray.time, "monotonic", side_effect=[0, 0, 4]):
+            result = xray.measure_upload(opener, byte_count=byte_count)
 
         req, _ = opener.requests[0]
-        self.assertEqual(req.full_url, "https://speed.cloudflare.com/__up?bytes=1048576")
+        self.assertEqual(req.full_url, f"https://speed.cloudflare.com/__up?bytes={byte_count}")
         self.assertEqual(req.get_method(), "POST")
-        self.assertEqual(len(req.data), xray.DEFAULT_SPEED_TEST_BYTES)
-        self.assertEqual(result, round((xray.DEFAULT_SPEED_TEST_BYTES * 8) / 4 / 1_000_000, 2))
+        self.assertEqual(len(req.data), byte_count)
+        self.assertEqual(result, round((byte_count * 8) / 4 / 1_000_000, 2))
+
+    def test_measure_upload_reports_confirmed_bytes_after_remainder_timeout(self):
+        opener = FakeOpener([FakeResponse([b"ok"]), TimeoutError("slow remainder")])
+        byte_count = xray.UPLOAD_CONFIRMATION_PROBE_BYTES * 4
+
+        with patch.object(xray.time, "monotonic", side_effect=[0, 0, 1, 5]):
+            with self.assertRaises(xray.PartialUploadError) as raised:
+                xray.measure_upload(opener, byte_count=byte_count, timeout_ms=7000)
+
+        error = raised.exception
+        self.assertEqual(error.uploaded_bytes, xray.UPLOAD_CONFIRMATION_PROBE_BYTES)
+        self.assertEqual(error.requested_bytes, byte_count)
+        self.assertEqual(error.speed_mbps, xray.mbps(xray.UPLOAD_CONFIRMATION_PROBE_BYTES, 5))
+        self.assertEqual(len(opener.requests), 2)
+
+    def test_measure_upload_does_not_hide_http_error_as_partial_speed(self):
+        http_error = urllib.error.HTTPError(
+            "https://speed.cloudflare.com/__up",
+            429,
+            "Too Many Requests",
+            {},
+            None,
+        )
+        opener = FakeOpener([FakeResponse([b"ok"]), http_error])
+        with patch.object(xray.time, "monotonic", side_effect=[0, 0, 1, 2]):
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                xray.measure_upload(
+                    opener,
+                    byte_count=xray.UPLOAD_CONFIRMATION_PROBE_BYTES * 2,
+                    timeout_ms=7000,
+                )
+
+        self.assertEqual(raised.exception.code, 429)
+
+    def test_upload_diagnostics_keep_partial_speed_as_warning(self):
+        partial = xray.PartialUploadError(256 * 1024, 1024 * 1024, 5, TimeoutError("slow"))
+        with patch.object(xray, "measure_upload", side_effect=partial):
+            speeds, errors = xray.run_speed_tests_with_diagnostics(Mock(), "upload", "ip")
+
+        self.assertEqual(speeds["upload_mbps"], partial.speed_mbps)
+        self.assertIn("upload partial", speeds["speed_warnings"][0])
+        self.assertEqual(errors, [])
 
     def test_run_speed_tests_respects_mode(self):
         with patch.object(xray, "measure_download", return_value=10) as download:

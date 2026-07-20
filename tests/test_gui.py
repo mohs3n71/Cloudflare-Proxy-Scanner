@@ -711,12 +711,16 @@ class GuiTests(unittest.TestCase):
         app.profile = object()
         app.runner_log = FakeLog()
 
-        app._handle_runner_speed_result("download", {"ok": True, "download_mbps": 12.5})
+        app._handle_runner_speed_result(
+            "download",
+            {"ok": True, "download_mbps": 12.5, "speed_warnings": ["upload partial: confirmed bytes"]},
+        )
 
         self.assertEqual(app.runner_download_result_var.value, "12.5 Mbps")
         self.assertEqual(app.runner_upload_result_var.value, None)
         self.assertEqual(app.runner_download_button.state, "normal")
         self.assertIn("Download speed test passed", "".join(app.runner_log.lines))
+        self.assertIn("WARNING upload partial", "".join(app.runner_log.lines))
 
     def test_fragment_scan_variations_have_expected_size(self):
         self.assertEqual(len(gui_runner.FRAGMENT_SCAN_VARIATIONS), 24)
