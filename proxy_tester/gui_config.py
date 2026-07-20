@@ -72,8 +72,8 @@ class ConfigMixin:
 
         frame = ttk.Frame(modal, padding=12)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Configuration name").pack(anchor="w")
-        name_var = tk.StringVar(value="new-config.config")
+        ttk.Label(frame, text="Configuration name (unique)").pack(anchor="w")
+        name_var = tk.StringVar(value=self._next_available_config_filename("new-config.config"))
         ttk.Entry(frame, textvariable=name_var).pack(fill="x", pady=(4, 10))
         ttk.Label(frame, text="Proxy URL").pack(anchor="w")
         text = tk.Text(frame, height=8, wrap="word")
@@ -91,14 +91,15 @@ class ConfigMixin:
                     "Enter one VLESS, VMess, or Trojan proxy URL.",
                 )
                 return
-            path = os.path.join(CONFIG_DIR, name)
             try:
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(value + "\n")
-                parse_proxy_config(path)
+                path = self._create_config_file(name, value)
+            except FileExistsError:
+                messagebox.showerror(
+                    "Configuration Already Exists",
+                    f'A configuration named "{name}" already exists. Choose a different name.',
+                )
+                return
             except Exception as exc:
-                if os.path.exists(path):
-                    os.remove(path)
                 messagebox.showerror("Invalid Configuration", str(exc))
                 return
             self._load_configs()
@@ -117,6 +118,30 @@ class ConfigMixin:
         if ext.lower() != ".config":
             name = (root or name) + ".config"
         return name
+
+    def _next_available_config_filename(self, preferred_name):
+        name = self._safe_config_filename(preferred_name)
+        root, ext = os.path.splitext(name)
+        candidate = name
+        suffix = 2
+        while os.path.exists(os.path.join(CONFIG_DIR, candidate)):
+            candidate = f"{root}-{suffix}{ext}"
+            suffix += 1
+        return candidate
+
+    def _create_config_file(self, name, value):
+        path = os.path.join(CONFIG_DIR, name)
+        created = False
+        try:
+            with open(path, "x", encoding="utf-8") as config_file:
+                config_file.write(value + "\n")
+            created = True
+            parse_proxy_config(path)
+        except Exception:
+            if created and os.path.exists(path):
+                os.remove(path)
+            raise
+        return path
 
     def _load_outputs(self):
         self.output_paths_by_name = {os.path.basename(path): path for path in output_csv_files()}

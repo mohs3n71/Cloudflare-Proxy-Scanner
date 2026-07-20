@@ -154,6 +154,7 @@ The Windows GUI launcher uses `pythonw.exe`, so it opens the GUI without keeping
 - Default SOCKS port is `1080`.
 - Enable `Share on network (0.0.0.0)` if other devices on your LAN should use the SOCKS port.
 - Choose how the runner handles Windows system proxy: `Set system proxy`, `Clear system proxy`, or `Do not touch system proxy`.
+- Fragmentation is disabled by default in the Xray Runner.
 - Fragment defaults are `Packets: 1-3`, `Interval: 1-1`, and `Length: 1-7`.
 - Disable `Enable fragment` to run the selected IP without fragment settings.
 - Use `Start Xray` and `Stop Xray` to control the local runner.
@@ -239,7 +240,7 @@ Default speed settings:
 
 - Size: `1 MB`
 - Timeout: `7000ms`
-- Fragment can be enabled or disabled for speed tests.
+- Fragmentation is disabled by default and can be enabled for speed tests.
 - Speed-test fragment defaults are `Packets: 1-3`, `Interval: 1-1`, and `Length: 1-7`.
 
 Speed test target:
@@ -698,6 +699,7 @@ output/working-cloudflare-proxy-ips-latest.csv
 
 - حجم تست: `1 MB`
 - timeout تست سرعت: `7000ms`
+- فرگمنت به‌صورت پیش‌فرض غیرفعال است و در صورت نیاز می‌توانید آن را فعال کنید.
 
 آدرس تست سرعت:
 

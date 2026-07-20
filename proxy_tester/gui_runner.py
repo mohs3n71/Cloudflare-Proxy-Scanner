@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from .paths import XRAY_EXE
 from .settings import (
+    DEFAULT_FRAGMENT_ENABLED,
     RunnerSettings,
     SYSTEM_PROXY_CLEAR,
     SYSTEM_PROXY_DO_NOT_TOUCH,
@@ -150,7 +151,7 @@ class RunnerMixin:
         self.runner_port_var = tk.StringVar(value=settings.port)
         self.runner_share_var = tk.BooleanVar(value=settings.share)
         self.runner_system_proxy_mode_var = tk.StringVar(value=settings.system_proxy_mode)
-        self.fragment_enabled_var = tk.BooleanVar(value=settings.fragment_enabled)
+        self.fragment_enabled_var = tk.BooleanVar(value=DEFAULT_FRAGMENT_ENABLED)
         self.fragment_packets_var = tk.StringVar(value=settings.fragment_packets)
         self.fragment_interval_var = tk.StringVar(value=settings.fragment_interval)
         self.fragment_length_var = tk.StringVar(value=settings.fragment_length)
@@ -1010,7 +1011,7 @@ class RunnerMixin:
             port=str(self.runner_port_var.get()).strip(),
             share=bool(self.runner_share_var.get()),
             system_proxy_mode=self.runner_system_proxy_mode_var.get(),
-            fragment_enabled=bool(self.fragment_enabled_var.get()),
+            fragment_enabled=DEFAULT_FRAGMENT_ENABLED,
             fragment_packets=self.fragment_packets_var.get().strip(),
             fragment_interval=self.fragment_interval_var.get().strip(),
             fragment_length=self.fragment_length_var.get().strip(),

@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -254,6 +255,42 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(app._safe_config_filename("my config.txt"), "my-config.config")
         self.assertEqual(app._safe_config_filename("ready.config"), "ready.config")
         self.assertEqual(app._safe_config_filename(""), "config.config")
+
+    def test_next_available_config_filename_adds_incrementing_suffix(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        with patch.object(gui_config, "CONFIG_DIR", os.getcwd()), patch.object(
+            gui_config.os.path,
+            "exists",
+            side_effect=lambda path: os.path.basename(path) in {"new-config.config", "new-config-2.config"},
+        ):
+            name = app._next_available_config_filename("new-config.config")
+
+        self.assertEqual(name, "new-config-3.config")
+
+    def test_create_config_file_keeps_existing_configs(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        with tempfile.TemporaryDirectory() as config_dir, patch.object(gui_config, "CONFIG_DIR", config_dir), patch.object(
+            gui_config, "parse_proxy_config"
+        ):
+            first_path = app._create_config_file("first.config", "vless://first")
+            second_path = app._create_config_file("second.config", "trojan://second")
+            with self.assertRaises(FileExistsError):
+                app._create_config_file("first.config", "vmess://replacement")
+
+            with open(first_path, encoding="utf-8") as first_file:
+                self.assertEqual(first_file.read(), "vless://first\n")
+            with open(second_path, encoding="utf-8") as second_file:
+                self.assertEqual(second_file.read(), "trojan://second\n")
+
+    def test_create_config_file_removes_only_new_invalid_file(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        with tempfile.TemporaryDirectory() as config_dir, patch.object(gui_config, "CONFIG_DIR", config_dir), patch.object(
+            gui_config, "parse_proxy_config", side_effect=ValueError("invalid")
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid"):
+                app._create_config_file("invalid.config", "vless://invalid")
+
+            self.assertFalse(os.path.exists(os.path.join(config_dir, "invalid.config")))
 
     def test_speed_fragment_settings_uses_configured_values(self):
         app = object.__new__(gui.ProxyTesterGui)
@@ -788,7 +825,7 @@ class GuiTests(unittest.TestCase):
         app.runner_port_var = FakeVar("2080")
         app.runner_share_var = FakeVar(True)
         app.runner_system_proxy_mode_var = FakeVar(gui_runner.SYSTEM_PROXY_SET)
-        app.fragment_enabled_var = FakeVar(False)
+        app.fragment_enabled_var = FakeVar(True)
         app.fragment_packets_var = FakeVar("tlshello")
         app.fragment_interval_var = FakeVar("2-5")
         app.fragment_length_var = FakeVar("5-15")

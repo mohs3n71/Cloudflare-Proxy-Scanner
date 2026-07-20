@@ -8,6 +8,7 @@ from .paths import BASE_DIR
 CONCURRENCY_OPTIONS = [10, 20, 50, 100, 200]
 DEFAULT_CONCURRENCY = 50
 DEFAULT_TIMEOUT_MS = 2000
+DEFAULT_FRAGMENT_ENABLED = False
 RUNNER_SETTINGS_PATH = os.path.join(BASE_DIR, "settings.json")
 
 SYSTEM_PROXY_DO_NOT_TOUCH = "Leave system proxy unchanged"
@@ -33,7 +34,7 @@ class RunnerSettings:
     port: str = "1080"
     share: bool = False
     system_proxy_mode: str = SYSTEM_PROXY_DO_NOT_TOUCH
-    fragment_enabled: bool = True
+    fragment_enabled: bool = DEFAULT_FRAGMENT_ENABLED
     fragment_packets: str = "1-3"
     fragment_interval: str = "1-1"
     fragment_length: str = "1-7"

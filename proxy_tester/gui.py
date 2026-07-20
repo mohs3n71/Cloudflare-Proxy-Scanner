@@ -9,7 +9,7 @@ from .gui_runner import RunnerMixin
 from .gui_table import TableMixin
 from .gui_utils import merge_rows_by_ip, numeric_sort_value, table_sort_value
 from .gui_workers import WorkerMixin
-from .settings import AppSettings, CONCURRENCY_OPTIONS, load_runner_settings
+from .settings import AppSettings, CONCURRENCY_OPTIONS, DEFAULT_FRAGMENT_ENABLED, load_runner_settings
 from .storage import ensure_project_dirs
 from .xray import DEFAULT_SPEED_TEST_BYTES, DEFAULT_SPEED_TEST_TIMEOUT_MS
 
@@ -208,7 +208,7 @@ class ProxyTesterGui(ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
         speed_fragment_box.grid(row=8, column=0, sticky="ew", pady=(8, 0))
         for index in range(6):
             speed_fragment_box.columnconfigure(index, weight=1 if index % 2 else 0)
-        self.speed_fragment_enabled_var = tk.BooleanVar(value=True)
+        self.speed_fragment_enabled_var = tk.BooleanVar(value=DEFAULT_FRAGMENT_ENABLED)
         self.speed_fragment_packets_var = tk.StringVar(value="1-3")
         self.speed_fragment_interval_var = tk.StringVar(value="1-1")
         self.speed_fragment_length_var = tk.StringVar(value="1-7")

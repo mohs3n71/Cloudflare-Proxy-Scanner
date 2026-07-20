@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from proxy_tester.settings import (
+    DEFAULT_FRAGMENT_ENABLED,
     RunnerSettings,
     SYSTEM_PROXY_SET,
     load_runner_settings,
@@ -12,6 +13,10 @@ from proxy_tester.settings import (
 
 
 class RunnerSettingsTests(unittest.TestCase):
+    def test_fragmentation_is_disabled_by_default(self):
+        self.assertFalse(DEFAULT_FRAGMENT_ENABLED)
+        self.assertFalse(RunnerSettings().fragment_enabled)
+
     def test_runner_settings_round_trip(self):
         expected = RunnerSettings(
             ip="104.16.1.1",
