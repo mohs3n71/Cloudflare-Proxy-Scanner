@@ -6,13 +6,24 @@ from tkinter import ttk
 from . import cloudflare
 from .gui_about import AboutMixin
 from .gui_config import ConfigMixin
+from .gui_ranges import CustomRangeMixin
 from .gui_runner import RunnerMixin
-from .gui_table import TableMixin
+from .gui_table import TABLE_COLUMN_LABELS, TableMixin
+from .gui_theme import DARK_MODE, apply_theme
 from .gui_utils import merge_rows_by_ip, numeric_sort_value, table_sort_value
 from .gui_workers import WorkerMixin
-from .settings import AppSettings, CONCURRENCY_OPTIONS, DEFAULT_FRAGMENT_ENABLED, load_runner_settings
+from .settings import (
+    AppSettings,
+    CONCURRENCY_OPTIONS,
+    DEFAULT_FRAGMENT_ENABLED,
+    load_custom_range_values,
+    load_appearance_mode,
+    load_runner_settings,
+)
+from .custom_ranges import parse_custom_ranges
 from .storage import ensure_project_dirs
 from .xray import DEFAULT_SPEED_TEST_BYTES, DEFAULT_SPEED_TEST_TIMEOUT_MS
+from .version import APP_TITLE
 
 
 
@@ -23,16 +34,23 @@ LEFT_PANEL_MIN_WIDTH = 450
 LEFT_PANEL_MIN_HEIGHT = 990
 
 
-class ProxyTesterGui(AboutMixin, ConfigMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
+class ProxyTesterGui(AboutMixin, ConfigMixin, CustomRangeMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
     def __init__(self):
         super().__init__()
         ensure_project_dirs()
-        self.title("Proxy Tester")
+        self.title(APP_TITLE)
         self.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.resizable(False, False)
 
         self.settings = AppSettings()
         self.runner_settings = load_runner_settings()
+        self.appearance_mode = load_appearance_mode()
+        self.appearance_var = tk.BooleanVar(value=self.appearance_mode == DARK_MODE)
+        self.theme_palette = apply_theme(self, self.appearance_mode)
+        try:
+            self.custom_networks = parse_custom_ranges("\n".join(load_custom_range_values()))
+        except ValueError:
+            self.custom_networks = []
         self.profile = None
         self.worker_thread = None
         self.stop_event = threading.Event()
@@ -99,12 +117,30 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, RunnerMixin, TableMixin, WorkerMix
         self.config_combo = ttk.Combobox(config_box, textvariable=self.config_var, state="readonly", width=42)
         self.config_combo.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.config_combo.bind("<<ComboboxSelected>>", lambda _event: self._select_config())
-        ttk.Button(config_box, text="Add Configuration", command=self.open_add_config_modal).grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            pady=(6, 0),
+        config_buttons = ttk.Frame(config_box)
+        config_buttons.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        for column in range(3):
+            config_buttons.columnconfigure(column, weight=1)
+        self.add_config_button = ttk.Button(
+            config_buttons,
+            text="Add",
+            command=self.open_add_config_modal,
         )
+        self.add_config_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.edit_config_button = ttk.Button(
+            config_buttons,
+            text="Edit",
+            command=self.open_edit_config_modal,
+            state="disabled",
+        )
+        self.edit_config_button.grid(row=0, column=1, sticky="ew", padx=4)
+        self.remove_config_button = ttk.Button(
+            config_buttons,
+            text="Remove",
+            command=self.remove_selected_config,
+            state="disabled",
+        )
+        self.remove_config_button.grid(row=0, column=2, sticky="ew", padx=(4, 0))
 
         scan_box = ttk.LabelFrame(left, text="Cloudflare IP Scan", padding=10)
         scan_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -126,33 +162,56 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, RunnerMixin, TableMixin, WorkerMix
             value="all_full",
             command=self._sync_range_state,
         ).grid(row=2, column=0, sticky="w")
+        single_range_modes = ttk.Frame(scan_box)
+        single_range_modes.grid(row=3, column=0, sticky="ew")
+        single_range_modes.columnconfigure(0, weight=1)
+        single_range_modes.columnconfigure(1, weight=1)
         ttk.Radiobutton(
-            scan_box,
-            text="Random IPs from one Cloudflare range",
+            single_range_modes,
+            text="Random from one range",
             variable=self.mode_var,
             value="range",
             command=self._sync_range_state,
-        ).grid(row=3, column=0, sticky="w")
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Radiobutton(
+            single_range_modes,
+            text="Every IP in one range",
+            variable=self.mode_var,
+            value="range_full",
+            command=self._sync_range_state,
+        ).grid(row=0, column=1, sticky="w")
 
-        ttk.Label(scan_box, text="Cloudflare range").grid(row=4, column=0, sticky="w", pady=(12, 0))
+        custom_mode = ttk.Frame(scan_box)
+        custom_mode.grid(row=4, column=0, sticky="ew")
+        custom_mode.columnconfigure(0, weight=1)
+        ttk.Radiobutton(
+            custom_mode,
+            text="Random IPs from custom ranges",
+            variable=self.mode_var,
+            value="custom",
+            command=self._sync_range_state,
+        ).grid(row=0, column=0, sticky="w")
+        self.custom_range_summary_var = tk.StringVar()
+        ttk.Label(custom_mode, textvariable=self.custom_range_summary_var).grid(row=0, column=1, sticky="e", padx=(6, 8))
+        ttk.Button(custom_mode, text="Edit Ranges", command=self.open_custom_ranges_modal).grid(
+            row=0, column=2, sticky="e"
+        )
+
+        ttk.Label(scan_box, text="Single range").grid(row=5, column=0, sticky="w", pady=(6, 0))
         self.range_var = tk.StringVar()
         self.range_combo = ttk.Combobox(scan_box, textvariable=self.range_var, state="readonly", width=42)
-        self.range_combo.grid(row=5, column=0, sticky="ew", pady=(4, 12))
-        ranges = cloudflare.networks()
-        self.ranges_by_label = {
-            f"{net} ({cloudflare.usable_hosts(net)} usable IPs)": net for net in ranges
-        }
-        self.range_combo["values"] = list(self.ranges_by_label)
-        if self.range_combo["values"]:
-            self.range_combo.current(0)
+        self.range_combo.grid(row=6, column=0, sticky="ew", pady=(4, 8))
+        self.cloudflare_networks = cloudflare.networks()
+        self._refresh_range_options()
 
-        ttk.Label(scan_box, text="Number of IPs").grid(row=6, column=0, sticky="w")
+        ttk.Label(scan_box, text="Number of IPs").grid(row=7, column=0, sticky="w")
         self.count_var = tk.StringVar(value="100")
         self.count_entry = ttk.Entry(scan_box, textvariable=self.count_var, width=18)
-        self.count_entry.grid(row=7, column=0, sticky="w", pady=(4, 6))
+        self.count_entry.grid(row=8, column=0, sticky="w", pady=(4, 4))
         self._sync_range_state()
+        self._refresh_custom_range_summary()
         scan_settings = ttk.Frame(scan_box)
-        scan_settings.grid(row=8, column=0, sticky="ew", pady=(0, 8))
+        scan_settings.grid(row=9, column=0, sticky="ew", pady=(0, 6))
         ttk.Label(scan_settings, text="Concurrent tests").grid(row=0, column=0, sticky="w")
         self.concurrency_var = tk.IntVar(value=self.settings.concurrency)
         ttk.Combobox(
@@ -170,11 +229,11 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, RunnerMixin, TableMixin, WorkerMix
             scan_box,
             text="Run speed test after scan",
             variable=self.auto_speed_after_scan_var,
-        ).grid(row=9, column=0, sticky="w", pady=(0, 6))
+        ).grid(row=10, column=0, sticky="w", pady=(0, 6))
         self.start_button = ttk.Button(scan_box, text="Start Scan", command=self.start_scan)
-        self.start_button.grid(row=10, column=0, sticky="ew")
+        self.start_button.grid(row=11, column=0, sticky="ew")
         self.stop_scan_button = ttk.Button(scan_box, text="Stop Scan", command=self.stop_current, state="disabled")
-        self.stop_scan_button.grid(row=11, column=0, sticky="ew", pady=(6, 0))
+        self.stop_scan_button.grid(row=12, column=0, sticky="ew", pady=(6, 0))
 
         output_box = ttk.LabelFrame(left, text="Saved Results and Speed Test", padding=10)
         output_box.grid(row=2, column=0, sticky="ew")
@@ -286,16 +345,18 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, RunnerMixin, TableMixin, WorkerMix
             height=14,
             selectmode="extended",
         )
-        for column, label, width in (
-            ("ping", "Latency (ms)", 90),
-            ("ip", "IP", 150),
-            ("download", "Download (Mbps)", 115),
-            ("upload", "Upload (Mbps)", 110),
+        for column, width in (
+            ("ping", 125),
+            ("ip", 120),
+            ("download", 165),
+            ("upload", 150),
         ):
+            label = TABLE_COLUMN_LABELS[column]
             self.table.heading(column, text=label, command=lambda col=column: self._sort_by_column(col))
             self.table.column(column, width=width, anchor="w")
+        self._update_sort_headings()
         self.table.grid(row=1, column=0, sticky="nsew")
-        self.table.tag_configure("active", background="#fff2a8")
+        self.table.tag_configure("active", background=self.theme_palette["active_row"])
         table_scroll = ttk.Scrollbar(right, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=table_scroll.set)
         table_scroll.grid(row=1, column=1, sticky="ns")

@@ -3,6 +3,7 @@ import json
 import os
 import time
 
+from .metrics import normalize_failed_metric
 from .paths import CONFIG_DIR, LOG_DIR, OUTPUT_DIR
 from .proxy_config import make_proxy_url
 
@@ -76,11 +77,11 @@ def save_scan_results(passed, prefix="working-cloudflare-proxy-ips"):
             writer = csv.writer(f)
             writer.writerow(headers)
             for r in passed:
-                row = [r["ip"], r["ms"], r.get("colo", ""), r.get("warp", "")]
+                row = [r["ip"], normalize_failed_metric(r["ms"]), r.get("colo", ""), r.get("warp", "")]
                 if "download_mbps" in headers:
-                    row.append(r.get("download_mbps", ""))
+                    row.append(normalize_failed_metric(r.get("download_mbps", "")))
                 if "upload_mbps" in headers:
-                    row.append(r.get("upload_mbps", ""))
+                    row.append(normalize_failed_metric(r.get("upload_mbps", "")))
                 writer.writerow(row)
 
     return out_path, latest_path

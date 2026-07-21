@@ -8,8 +8,10 @@ import webbrowser
 from tkinter import messagebox, ttk
 
 from .paths import XRAY_EXE
+from .gui_theme import DARK_MODE, LIGHT_MODE, apply_theme
+from .settings import save_appearance_mode
 from .update_checker import check_for_update
-from .version import APP_VERSION, GITHUB_URL
+from .version import APP_TITLE, APP_VERSION, GITHUB_URL
 
 
 XRAY_METADATA_FILE = "xray.metadata.json"
@@ -68,7 +70,7 @@ class AboutMixin:
         content.grid(row=0, column=0)
         content.columnconfigure(1, weight=1)
 
-        ttk.Label(content, text="Cloudflare Proxy Scanner", font=("TkDefaultFont", 18, "bold")).grid(
+        ttk.Label(content, text=APP_TITLE, font=("TkDefaultFont", 18, "bold")).grid(
             row=0, column=0, columnspan=2, pady=(0, 24)
         )
         ttk.Label(content, text="Application version").grid(row=1, column=0, sticky="w", padx=(0, 28), pady=6)
@@ -77,15 +79,33 @@ class AboutMixin:
         ttk.Label(content, text=get_xray_version()).grid(row=2, column=1, sticky="w", pady=6)
         ttk.Label(content, text="GitHub repository").grid(row=3, column=0, sticky="w", padx=(0, 28), pady=6)
         ttk.Label(content, text=GITHUB_URL).grid(row=3, column=1, sticky="w", pady=6)
+        ttk.Label(content, text="Appearance").grid(row=4, column=0, sticky="w", padx=(0, 28), pady=6)
+        ttk.Checkbutton(
+            content,
+            text="Dark mode",
+            variable=self.appearance_var,
+            command=self._set_appearance_from_control,
+        ).grid(row=4, column=1, sticky="w", pady=6)
         ttk.Button(content, text="Open GitHub Repository", command=self._open_github_repository).grid(
-            row=4, column=0, columnspan=2, sticky="ew", pady=(24, 0)
+            row=5, column=0, columnspan=2, sticky="ew", pady=(24, 0)
         )
         self.update_status_var = tk.StringVar(value="")
         self.update_button = ttk.Button(content, text="Check for Updates", command=self.check_for_updates)
-        self.update_button.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        self.update_button.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         ttk.Label(content, textvariable=self.update_status_var).grid(
-            row=6, column=0, columnspan=2, pady=(8, 0)
+            row=7, column=0, columnspan=2, pady=(8, 0)
         )
+
+    def _set_appearance_from_control(self):
+        mode = DARK_MODE if self.appearance_var.get() else LIGHT_MODE
+        self.appearance_mode = mode
+        self.theme_palette = apply_theme(self, mode)
+        if hasattr(self, "table"):
+            self.table.tag_configure("active", background=self.theme_palette["active_row"])
+        try:
+            save_appearance_mode(mode)
+        except OSError as exc:
+            messagebox.showerror("Appearance Settings", f"Could not save appearance preference:\n{exc}", parent=self)
 
     def _open_web_page(self, url, title):
         try:

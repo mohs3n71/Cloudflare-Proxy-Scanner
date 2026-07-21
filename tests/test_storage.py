@@ -99,6 +99,18 @@ class StorageTests(unittest.TestCase):
 
         self.assertEqual(headers, ["ip", "latency_ms", "colo", "warp"])
 
+    def test_save_scan_results_normalizes_float_failure_values(self):
+        with tempfile.TemporaryDirectory() as td, patch.object(storage, "OUTPUT_DIR", td):
+            out_path, _ = storage.save_scan_results(
+                [{"ip": "104.16.1.1", "ms": -1.0, "download_mbps": "-1.0", "upload_mbps": -1.00}]
+            )
+            with open(out_path, "r", encoding="utf-8", newline="") as output_file:
+                row = next(csv.DictReader(output_file))
+
+        self.assertEqual(row["latency_ms"], "-1")
+        self.assertEqual(row["download_mbps"], "-1")
+        self.assertEqual(row["upload_mbps"], "-1")
+
     def test_save_proxy_configs_writes_one_link_per_row(self):
         with tempfile.TemporaryDirectory() as td, patch.object(storage, "OUTPUT_DIR", td):
             csv_path = os.path.join(td, "working.csv")

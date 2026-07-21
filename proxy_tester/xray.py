@@ -217,8 +217,8 @@ def make_outbound(ip, profile):
 
 
 def make_stream_settings(profile):
-    return {
-        "network": "ws",
+    settings = {
+        "network": profile.network,
         "security": profile.security,
         "tlsSettings": {
             "serverName": profile.sni,
@@ -226,11 +226,24 @@ def make_stream_settings(profile):
             "allowInsecure": profile.allow_insecure,
             "alpn": tls_alpn_for_xray(profile),
         },
-        "wsSettings": {
+    }
+    if profile.network == "xhttp":
+        xhttp_settings = {
+            "path": profile.ws_path,
+        }
+        if profile.ws_host:
+            xhttp_settings["host"] = profile.ws_host
+        if profile.xhttp_mode:
+            xhttp_settings["mode"] = profile.xhttp_mode
+        if profile.xhttp_extra:
+            xhttp_settings["extra"] = profile.xhttp_extra
+        settings["xhttpSettings"] = xhttp_settings
+    else:
+        settings["wsSettings"] = {
             "path": profile.ws_path,
             "headers": {"Host": profile.ws_host},
-        },
-    }
+        }
+    return settings
 
 
 def mbps(byte_count, elapsed_seconds):

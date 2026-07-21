@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/mohs3n71/Cloudflare-Proxy-Scanner/actions/workflows/tests.yml/badge.svg)](https://github.com/mohs3n71/Cloudflare-Proxy-Scanner/actions/workflows/tests.yml)
 
-A complete desktop and CLI application for finding usable Cloudflare proxy IPs with VLESS, VMess, and Trojan configurations. It combines parallel IP scanning, custom Xray fragment testing, latency and speed measurement, saved results, and a polished desktop GUI.
+A complete desktop and CLI application for finding usable Cloudflare proxy IPs with VLESS, VMess, and Trojan configurations over WebSocket or XHTTP. It combines parallel IP scanning, custom Xray fragment testing, latency and speed measurement, saved results, and a polished desktop GUI.
 
 ### What Makes It Different
 
@@ -33,14 +33,17 @@ The project also provides a CLI, Windows/Linux/macOS launch scripts, multi-platf
 - Saves GUI logs to `logs`.
 - Can publish standalone Windows, Linux, and macOS releases for x64, x86, and ARM64 targets where supported.
 - Includes an About tab with the application version, bundled Xray version, and project GitHub link.
+- Includes a persistent mild dark mode that can be enabled from the About tab.
 
 ### Supported Config Types
 
-The app supports websocket configs:
+The app supports WebSocket (`type=ws` / `net=ws`) and XHTTP (`type=xhttp` / `net=xhttp`) configs for:
 
 - `vless://`
 - `vmess://`
 - `trojan://`
+
+The older `splithttp` transport name is accepted as an alias for XHTTP. For XHTTP profiles, the app preserves `host`, `path`, `mode`, and the optional raw JSON `extra` object when scanning, running Xray, generating result configurations, and creating QR codes.
 
 Put config text files in:
 
@@ -57,6 +60,10 @@ configs/trojan-server.config
 ```
 
 Each file should contain at least one supported config line. If there is no valid config, scan and speed-test actions are disabled until you add one.
+
+### Appearance
+
+Open the `About` tab and enable `Dark mode` to switch the complete interface to a soft charcoal theme. The preference is saved in `settings.json` and restored the next time the app starts. Disable the same option to return to light mode.
 
 ### Project Folders
 
@@ -92,6 +99,10 @@ bin/xray/xray
 ```
 
 On each launch, the app checks the full official Xray release list. If a newer published release exists, including a prerelease, it replaces the cached binary automatically. If GitHub is temporarily unreachable, the existing cached binary remains usable.
+
+The GUI launcher shows a startup progress window while checking Xray. When an update is downloaded, the progress bar shows its percentage (or transferred megabytes when the server does not provide a total size). If checking or downloading the update fails and a local Xray binary already exists, the app continues with that binary. If no binary exists, an error explains where to copy it manually.
+
+This startup check is used only when running from source through `run_gui.bat` or `run_gui.sh`. Standalone release executables use their bundled Xray version and do not check for or download Xray updates at startup.
 
 You can also prepare Xray manually for the current machine:
 
@@ -129,13 +140,17 @@ The Windows GUI launcher uses `pythonw.exe`, so it opens the GUI without keeping
 
 - Select an existing config file from `configs`.
 - Add a new `vless://`, `vmess://`, or `trojan://` config using the UI.
+- Edit or rename the selected configuration. Changes are validated before the original file is replaced.
+- Remove the selected configuration after confirming the deletion.
 - If no config exists, scan and speed-test buttons stay disabled.
 
 **Scan New IPs**
 
 - Choose `Random from all CF ranges`.
 - Choose `All IPs from all CF ranges` to scan every usable IP in every Cloudflare range.
-- Or choose `Random from selected range`.
+- Choose `Random from one range` or `Every IP in one range`. The selector includes built-in Cloudflare ranges and saved custom ranges.
+- Choose `Random IPs from custom ranges` to sample across all custom CIDRs together.
+- Use `Edit Ranges` to add, edit, or clear persistent custom IPv4 CIDRs. Enter one CIDR per line; bare IP addresses are accepted as `/32` ranges.
 - Set IP count for random modes. The count is ignored for full all-range scans.
 - Set scan parallelism: `10`, `20`, `50`, `100`, or `200`. Default is `50`.
 - Set scan timeout. Default is `2000ms`.
@@ -187,6 +202,7 @@ The result table is sortable by clicking column headers:
 - Upload Mbps
 
 Sorting stays active while scanning or speed testing.
+The active sort header is marked with `▶` and shows `▲` for ascending or `▼` for descending order.
 
 Use `Remove Failed Results (-1)` to remove any row where latency, download, or upload is `-1`.
 
@@ -211,7 +227,7 @@ The results table can generate a mobile-ready QR code for any tested IP:
 3. Right-click the row and choose `Show Configuration QR Code`.
 4. Scan the displayed code with a compatible mobile proxy client.
 
-The generated configuration supports VLESS, VMess, and Trojan. It preserves the active profile's credentials, port, TLS settings, SNI, fingerprint, ALPN, WebSocket host, and WebSocket path while replacing the server address with the selected IP.
+The generated configuration supports VLESS, VMess, and Trojan over WebSocket or XHTTP. It preserves the active profile's credentials, port, TLS settings, SNI, fingerprint, ALPN, transport host/path, and XHTTP `mode`/`extra` settings while replacing the server address with the selected IP.
 
 QR generation happens entirely on the local computer. The configuration and its credentials are not sent to an online QR service. The QR window also provides `Copy Configuration` as a text-import fallback. The menu action is disabled when no valid configuration is active or when more than one IP is selected.
 
@@ -511,7 +527,7 @@ configs/your-config.config
 
 # راهنمای فارسی
 
-این برنامه برای تست IPهای کلادفلر با کانفیگ‌های Xray شما ساخته شده است. برنامه از کانفیگ‌های websocket با فرمت‌های `vless://`، `vmess://` و `trojan://` پشتیبانی می‌کند، IPهای رندوم کلادفلر را تست می‌کند، IPهای سالم را ذخیره می‌کند و بعدا می‌تواند روی همان خروجی‌ها تست سرعت انجام دهد.
+این برنامه برای تست IPهای کلادفلر با کانفیگ‌های Xray شما ساخته شده است. برنامه از کانفیگ‌های WebSocket و XHTTP با فرمت‌های `vless://`، `vmess://` و `trojan://` پشتیبانی می‌کند، IPهای رندوم کلادفلر را تست می‌کند، IPهای سالم را ذخیره می‌کند و بعدا می‌تواند روی همان خروجی‌ها تست سرعت انجام دهد.
 
 > فقط روی اکانت‌ها و سرورهایی استفاده کنید که مالک آن‌ها هستید یا اجازه تست دارید.
 
@@ -529,14 +545,17 @@ configs/your-config.config
 - از روی IPهای سالم کانفیگ جدید می‌سازد.
 - لاگ‌های GUI را داخل پوشه `logs` ذخیره می‌کند.
 - می‌تواند به فایل اجرایی مستقل برای ویندوز یا لینوکس تبدیل شود.
+- دارای حالت تاریک ملایم و دائمی است که از تب «درباره برنامه» فعال می‌شود.
 
 ## فرمت‌های پشتیبانی‌شده
 
-برنامه از کانفیگ‌های websocket زیر پشتیبانی می‌کند:
+برنامه از انتقال‌های WebSocket با مقدار `ws` و XHTTP با مقدار `xhttp` برای کانفیگ‌های زیر پشتیبانی می‌کند:
 
 - `vless://`
 - `vmess://`
 - `trojan://`
+
+نام قدیمی `splithttp` نیز به‌عنوان نام جایگزین XHTTP پذیرفته می‌شود. در کانفیگ XHTTP، برنامه مقادیر `host`، `path`، `mode` و شیء JSON اختیاری `extra` را هنگام اسکن، اجرای Xray، ساخت کانفیگ خروجی و QR Code حفظ می‌کند.
 
 فایل‌های کانفیگ را داخل این پوشه قرار دهید:
 
@@ -553,6 +572,10 @@ configs/trojan-server.config
 ```
 
 داخل هر فایل باید حداقل یک خط کانفیگ معتبر وجود داشته باشد. اگر هیچ کانفیگ معتبری وجود نداشته باشد، دکمه‌های اسکن و تست سرعت غیرفعال می‌شوند تا کانفیگ اضافه کنید.
+
+## ظاهر برنامه
+
+در تب `About` گزینه `Dark mode` را فعال کنید تا تمام رابط کاربری به حالت تاریک ملایم تغییر کند. انتخاب شما در فایل `settings.json` ذخیره می‌شود و در اجرای بعدی برنامه نیز باقی می‌ماند. با غیرفعال کردن همین گزینه، حالت روشن دوباره فعال می‌شود.
 
 ## پوشه‌های پروژه
 
@@ -619,18 +642,26 @@ chmod +x run_gui.sh
 
 در ویندوز، لانچر GUI از `pythonw.exe` استفاده می‌کند؛ بنابراین کنار برنامه پنجره کنسول باز نمی‌ماند.
 
+لانچر هنگام بررسی Xray یک پنجره پیشرفت نمایش می‌دهد. اگر نسخه جدیدی دانلود شود، درصد دانلود یا حجم دریافت‌شده نمایش داده می‌شود. در صورت خطای شبکه، اگر فایل Xray موجود باشد برنامه با همان فایل اجرا می‌شود؛ اگر فایل موجود نباشد، مسیر دقیق برای کپی دستی Xray نمایش داده خواهد شد.
+
+این بررسی فقط هنگام اجرای سورس با `run_gui.bat` یا `run_gui.sh` انجام می‌شود. نسخه‌های اجرایی منتشرشده از Xray همراه خود برنامه استفاده می‌کنند و هنگام اجرا Xray را بررسی یا دانلود نمی‌کنند.
+
 ## بخش‌های GUI
 
 **Config**
 
 - انتخاب فایل کانفیگ از پوشه `configs`.
 - اضافه کردن کانفیگ جدید با فرمت `vless://`، `vmess://` یا `trojan://`.
+- ویرایش یا تغییر نام کانفیگ انتخاب‌شده؛ محتوای جدید قبل از جایگزینی فایل اصلی اعتبارسنجی می‌شود.
+- حذف کانفیگ انتخاب‌شده بعد از تأیید کاربر.
 - اگر کانفیگ وجود نداشته باشد، دکمه‌های اسکن و تست سرعت غیرفعال می‌شوند.
 
 **Scan New IPs**
 
 - اسکن IP رندوم از تمام رنج‌های کلادفلر.
-- یا اسکن IP رندوم از یک رنج انتخاب‌شده.
+- اسکن رندوم یا تمام IPهای یک رنج انتخاب‌شده؛ رنج‌های سفارشی نیز داخل همین فهرست نمایش داده می‌شوند.
+- اسکن رندوم از مجموع تمام رنج‌های سفارشی ذخیره‌شده.
+- افزودن و ویرایش رنج‌های IPv4 سفارشی با دکمه `Edit Ranges`. هر CIDR را در یک خط وارد کنید؛ IP تکی به‌صورت رنج `/32` ذخیره می‌شود.
 - انتخاب تعداد IP.
 - تنظیم تعداد تست موازی: `10`، `20`، `50`، `100` یا `200`. مقدار پیش‌فرض `50` است.
 - تنظیم timeout اسکن. مقدار پیش‌فرض `2000ms` است.
@@ -663,6 +694,7 @@ chmod +x run_gui.sh
 - Upload Mbps
 
 مرتب‌سازی حتی هنگام اسکن یا تست سرعت حفظ می‌شود.
+ستون فعال با علامت `▶` مشخص می‌شود و جهت مرتب‌سازی صعودی با `▲` یا نزولی با `▼` نمایش داده می‌شود.
 
 با راست‌کلیک روی ردیف‌های انتخاب‌شده این گزینه‌ها را دارید:
 
@@ -685,7 +717,7 @@ chmod +x run_gui.sh
 3. روی ردیف راست‌کلیک کنید و `Show Configuration QR Code` را بزنید.
 4. QR Code نمایش‌داده‌شده را با یک کلاینت سازگار روی موبایل اسکن کنید.
 
-این قابلیت از VLESS، VMess و Trojan پشتیبانی می‌کند. کانفیگ ساخته‌شده اطلاعات ورود، پورت، تنظیمات TLS، SNI، fingerprint، ALPN، آدرس WebSocket host و مسیر WebSocket را از پروفایل فعال حفظ می‌کند و فقط آدرس سرور را با IP انتخاب‌شده جایگزین می‌کند.
+این قابلیت از VLESS، VMess و Trojan روی WebSocket یا XHTTP پشتیبانی می‌کند. کانفیگ ساخته‌شده اطلاعات ورود، پورت، تنظیمات TLS، SNI، fingerprint، ALPN، آدرس و مسیر انتقال و تنظیمات `mode` و `extra` در XHTTP را از پروفایل فعال حفظ می‌کند و فقط آدرس سرور را با IP انتخاب‌شده جایگزین می‌کند.
 
 ساخت QR Code کاملا روی کامپیوتر شما انجام می‌شود و کانفیگ یا اطلاعات ورود آن برای هیچ سرویس آنلاین QR ارسال نمی‌شود. داخل پنجره QR دکمه `Copy Configuration` نیز برای انتقال متنی کانفیگ وجود دارد. اگر کانفیگ معتبری فعال نباشد یا بیشتر از یک IP انتخاب شده باشد، گزینه QR غیرفعال خواهد بود.
 

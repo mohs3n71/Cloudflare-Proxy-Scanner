@@ -2,7 +2,7 @@ import base64
 import json
 import os
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -25,9 +25,12 @@ class ProxyProfile:
     alter_id: int
     vmess_security: str
     header_type: str
+    xhttp_mode: str = ""
+    xhttp_extra: dict = field(default_factory=dict)
 
 
 SUPPORTED_SCHEMES = ("vless", "vmess", "trojan")
+SUPPORTED_NETWORKS = ("ws", "xhttp")
 
 
 def decode_base64(value):
@@ -57,6 +60,30 @@ def first_query_value(query, key, default=""):
     return value[0] if value else default
 
 
+def normalize_network(value, protocol, path):
+    network = str(value or "ws").strip().lower()
+    if network == "splithttp":
+        network = "xhttp"
+    if network not in SUPPORTED_NETWORKS:
+        supported = ", ".join(SUPPORTED_NETWORKS)
+        raise ValueError(f"Unsupported {protocol} transport in {path}: {value}. Supported: {supported}")
+    return network
+
+
+def parse_xhttp_extra(value, path):
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        extra = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Invalid XHTTP extra JSON in {path}: {exc}") from exc
+    if not isinstance(extra, dict):
+        raise ValueError(f"Invalid XHTTP extra JSON in {path}: expected an object")
+    return extra
+
+
 def parse_proxy_config(path):
     url = find_config_line(path)
     parsed = urllib.parse.urlparse(url)
@@ -72,9 +99,7 @@ def parse_proxy_config(path):
         raise ValueError(f"Missing port in {path}")
 
     query = urllib.parse.parse_qs(parsed.query)
-    network = first_query_value(query, "type", "ws")
-    if network != "ws":
-        raise ValueError(f"Only websocket VLESS configs are supported right now. {path} uses type={network}")
+    network = normalize_network(first_query_value(query, "type", "ws"), "VLESS", path)
 
     sni = first_query_value(query, "sni", parsed.hostname or "")
     ws_host = first_query_value(query, "host", sni)
@@ -99,6 +124,8 @@ def parse_proxy_config(path):
         alter_id=0,
         vmess_security="auto",
         header_type="none",
+        xhttp_mode=urllib.parse.unquote(first_query_value(query, "mode", "")) if network == "xhttp" else "",
+        xhttp_extra=parse_xhttp_extra(first_query_value(query, "extra", ""), path) if network == "xhttp" else {},
     )
 
 
@@ -109,9 +136,7 @@ def parse_vmess_config(path, url):
     except Exception as exc:
         raise ValueError(f"Invalid vmess:// config in {path}: {exc}") from exc
 
-    network = data.get("net") or "ws"
-    if network != "ws":
-        raise ValueError(f"Only websocket VMess configs are supported right now. {path} uses net={network}")
+    network = normalize_network(data.get("net") or "ws", "VMess", path)
     uuid = data.get("id") or ""
     if not uuid:
         raise ValueError(f"Missing VMess id in {path}")
@@ -140,6 +165,8 @@ def parse_vmess_config(path, url):
         alter_id=int(data.get("aid") or 0),
         vmess_security=data.get("scy") or "auto",
         header_type=data.get("type") or "none",
+        xhttp_mode=str(data.get("mode") or "") if network == "xhttp" else "",
+        xhttp_extra=parse_xhttp_extra(data.get("extra"), path) if network == "xhttp" else {},
     )
 
 
@@ -150,9 +177,7 @@ def parse_trojan_config(path, parsed):
         raise ValueError(f"Missing port in {path}")
 
     query = urllib.parse.parse_qs(parsed.query)
-    network = first_query_value(query, "type", "ws")
-    if network != "ws":
-        raise ValueError(f"Only websocket Trojan configs are supported right now. {path} uses type={network}")
+    network = normalize_network(first_query_value(query, "type", "ws"), "Trojan", path)
 
     sni = first_query_value(query, "sni", parsed.hostname or "")
     ws_host = first_query_value(query, "host", sni)
@@ -176,6 +201,8 @@ def parse_trojan_config(path, parsed):
         alter_id=0,
         vmess_security="auto",
         header_type="none",
+        xhttp_mode=urllib.parse.unquote(first_query_value(query, "mode", "")) if network == "xhttp" else "",
+        xhttp_extra=parse_xhttp_extra(first_query_value(query, "extra", ""), path) if network == "xhttp" else {},
     )
 
 
@@ -198,6 +225,10 @@ def make_proxy_url(ip, name, profile):
             "fp": profile.fingerprint,
             "alpn": profile.alpn,
         }
+        if profile.network == "xhttp":
+            data["mode"] = profile.xhttp_mode
+            if profile.xhttp_extra:
+                data["extra"] = json.dumps(profile.xhttp_extra, separators=(",", ":"))
         return f"vmess://{encode_base64(json.dumps(data, separators=(',', ':')))}"
     if profile.protocol == "trojan":
         query = common_url_query(profile)
@@ -227,4 +258,8 @@ def common_url_query(profile):
         "host": profile.ws_host,
         "path": profile.ws_path,
     }
+    if profile.network == "xhttp":
+        query["mode"] = profile.xhttp_mode
+        if profile.xhttp_extra:
+            query["extra"] = json.dumps(profile.xhttp_extra, separators=(",", ":"))
     return query

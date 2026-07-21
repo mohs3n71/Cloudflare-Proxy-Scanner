@@ -10,6 +10,8 @@ DEFAULT_CONCURRENCY = 50
 DEFAULT_TIMEOUT_MS = 2000
 DEFAULT_FRAGMENT_ENABLED = False
 RUNNER_SETTINGS_PATH = os.path.join(BASE_DIR, "settings.json")
+DEFAULT_APPEARANCE_MODE = "light"
+APPEARANCE_MODES = ("light", "dark")
 
 SYSTEM_PROXY_DO_NOT_TOUCH = "Leave system proxy unchanged"
 SYSTEM_PROXY_SET = "Use Xray as system proxy"
@@ -92,6 +94,68 @@ def save_runner_settings(settings, path=RUNNER_SETTINGS_PATH):
         pass
 
     data["xray_runner"] = asdict(settings)
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    temporary_path = path + ".tmp"
+    with open(temporary_path, "w", encoding="utf-8") as settings_file:
+        json.dump(data, settings_file, indent=2)
+        settings_file.write("\n")
+    os.replace(temporary_path, path)
+
+
+def load_custom_range_values(path=RUNNER_SETTINGS_PATH):
+    try:
+        with open(path, "r", encoding="utf-8") as settings_file:
+            data = json.load(settings_file)
+    except (OSError, ValueError, TypeError):
+        return []
+    values = data.get("custom_ranges") if isinstance(data, dict) else None
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, str)]
+
+
+def save_custom_range_values(values, path=RUNNER_SETTINGS_PATH):
+    data = {}
+    try:
+        with open(path, "r", encoding="utf-8") as settings_file:
+            loaded = json.load(settings_file)
+        if isinstance(loaded, dict):
+            data = loaded
+    except (OSError, ValueError, TypeError):
+        pass
+    data["custom_ranges"] = list(values)
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    temporary_path = path + ".tmp"
+    with open(temporary_path, "w", encoding="utf-8") as settings_file:
+        json.dump(data, settings_file, indent=2)
+        settings_file.write("\n")
+    os.replace(temporary_path, path)
+
+
+def load_appearance_mode(path=RUNNER_SETTINGS_PATH):
+    try:
+        with open(path, "r", encoding="utf-8") as settings_file:
+            data = json.load(settings_file)
+    except (OSError, ValueError, TypeError):
+        return DEFAULT_APPEARANCE_MODE
+    value = data.get("appearance") if isinstance(data, dict) else None
+    return value if value in APPEARANCE_MODES else DEFAULT_APPEARANCE_MODE
+
+
+def save_appearance_mode(mode, path=RUNNER_SETTINGS_PATH):
+    if mode not in APPEARANCE_MODES:
+        raise ValueError(f"Unsupported appearance mode: {mode}")
+    data = {}
+    try:
+        with open(path, "r", encoding="utf-8") as settings_file:
+            loaded = json.load(settings_file)
+        if isinstance(loaded, dict):
+            data = loaded
+    except (OSError, ValueError, TypeError):
+        pass
+    data["appearance"] = mode
     directory = os.path.dirname(os.path.abspath(path))
     os.makedirs(directory, exist_ok=True)
     temporary_path = path + ".tmp"

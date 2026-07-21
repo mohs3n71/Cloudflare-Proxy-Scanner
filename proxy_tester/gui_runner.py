@@ -1000,14 +1000,14 @@ class RunnerMixin:
 
         def show_placeholder():
             placeholder_active["active"] = True
-            text.configure(foreground="#777777")
+            text.configure(foreground=self.theme_palette["muted"])
             text.delete("1.0", "end")
             text.insert("1.0", CUSTOM_FRAGMENT_PLACEHOLDER)
 
         def hide_placeholder(_event=None):
             if placeholder_active["active"]:
                 placeholder_active["active"] = False
-                text.configure(foreground="black")
+                text.configure(foreground=self.theme_palette["text"])
                 text.delete("1.0", "end")
 
         def restore_placeholder(_event=None):
@@ -1033,7 +1033,7 @@ class RunnerMixin:
                 return
             with open(path, "r", encoding="utf-8") as f:
                 placeholder_active["active"] = False
-                text.configure(foreground="black")
+                text.configure(foreground=self.theme_palette["text"])
                 text.delete("1.0", "end")
                 text.insert("1.0", f.read())
 

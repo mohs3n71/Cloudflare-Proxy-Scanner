@@ -72,12 +72,18 @@ def random_ip_from_network(net):
 
 def random_candidates(limit):
     items = networks()
+    yield from random_candidates_from_networks(items, limit, "Cloudflare IPv4 addresses")
+
+
+def random_candidates_from_networks(items, limit, description="IPv4 addresses"):
+    items = list(items)
+    if not items:
+        raise ValueError("No IP ranges are available.")
     max_candidates = total_usable_hosts(items)
     if limit > max_candidates:
         raise ValueError(
-            f"Requested {limit} IPs, but only {max_candidates} usable Cloudflare IPv4 addresses are available"
+            f"Requested {limit} IPs, but only {max_candidates} usable {description} are available"
         )
-
     weights = [usable_hosts(net) for net in items]
     seen = set()
     while len(seen) < limit:

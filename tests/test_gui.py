@@ -1,9 +1,11 @@
+import ipaddress
 import os
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from proxy_tester import gui, gui_config, gui_runner, gui_table
+from proxy_tester.version import APP_TITLE
 from proxy_tester.settings import RunnerSettings
 
 
@@ -27,6 +29,15 @@ class FakeRefreshTable(FakeTable):
 
     def delete(self, item):
         pass
+
+
+class FakeHeadingTable(FakeRefreshTable):
+    def __init__(self):
+        super().__init__([], {})
+        self.headings = {}
+
+    def heading(self, column, **kwargs):
+        self.headings.setdefault(column, {}).update(kwargs)
 
 
 class FakeRenderTable(FakeRefreshTable):
@@ -124,6 +135,9 @@ class FakeCombo:
         if "state" in kwargs:
             self.state = kwargs["state"]
 
+    def current(self, index):
+        self.current_index = index
+
 
 class FakeVar:
     def __init__(self, value=None):
@@ -140,6 +154,7 @@ class GuiTests(unittest.TestCase):
     def test_gui_module_exposes_app_class_and_main(self):
         self.assertTrue(hasattr(gui, "ProxyTesterGui"))
         self.assertTrue(callable(gui.main))
+        self.assertEqual(APP_TITLE, "Cloudflare Proxy Scanner")
 
     def test_window_height_has_budget_for_left_panel_controls(self):
         self.assertGreaterEqual(gui.WINDOW_HEIGHT, gui.LEFT_PANEL_MIN_HEIGHT)
@@ -162,6 +177,35 @@ class GuiTests(unittest.TestCase):
 
         self.assertEqual(sorted(rows, key=lambda row: gui.table_sort_value(row, "ping"))[0]["ms"], 50)
         self.assertEqual(sorted(rows, key=lambda row: gui.table_sort_value(row, "download"))[-1]["download_mbps"], 20.0)
+
+    def test_table_values_display_failed_float_metrics_as_minus_one(self):
+        app = object.__new__(gui.ProxyTesterGui)
+
+        values = app._table_values(
+            {"ip": "104.16.1.1", "ms": -1.0, "download_mbps": "-1.0", "upload_mbps": -1.00}
+        )
+
+        self.assertEqual(values, (-1, "104.16.1.1", -1, -1))
+
+    def test_active_sort_heading_shows_direction_and_updates_on_click(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.table = FakeHeadingTable()
+        app.passed_results = []
+        app.table_items_by_ip = {}
+        app.sort_column = "ping"
+        app.sort_reverse = False
+
+        app._update_sort_headings()
+
+        self.assertEqual(app.table.headings["ping"]["text"], "▶ Latency (ms) ▲")
+        self.assertEqual(app.table.headings["ip"]["text"], "IP")
+
+        app._sort_by_column("ping")
+        self.assertEqual(app.table.headings["ping"]["text"], "▶ Latency (ms) ▼")
+
+        app._sort_by_column("ip")
+        self.assertEqual(app.table.headings["ping"]["text"], "Latency (ms)")
+        self.assertEqual(app.table.headings["ip"]["text"], "▶ IP ▲")
 
     def test_merge_rows_by_ip_preserves_existing_untested_speed_columns(self):
         rows = [
@@ -186,6 +230,18 @@ class GuiTests(unittest.TestCase):
 
         self.assertEqual(result["ms"], 123)
         self.assertEqual(result["download_mbps"], -1)
+
+    def test_speed_normalization_converts_float_failure_sentinels(self):
+        app = object.__new__(gui.ProxyTesterGui)
+
+        result = app._normalize_speed_result(
+            {"ip": "104.16.1.1", "ok": False, "ms": -1.0, "download_mbps": "-1.0"},
+            "download",
+        )
+
+        self.assertEqual(result["ms"], -1)
+        self.assertEqual(result["download_mbps"], -1)
+        self.assertIsInstance(result["download_mbps"], int)
 
     def test_selected_table_ips_returns_unique_ips_in_selection_order(self):
         app = object.__new__(gui.ProxyTesterGui)
@@ -237,7 +293,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(ips, ["104.16.1.1", "104.16.1.2"])
         self.assertEqual(source, "all Cloudflare IPs")
 
-    def test_all_full_mode_disables_range_and_count_controls(self):
+    def test_range_controls_follow_full_and_custom_modes(self):
         app = object.__new__(gui.ProxyTesterGui)
         app.mode_var = FakeVar()
         app.mode_var.set("all_full")
@@ -249,12 +305,50 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(app.range_combo.state, "disabled")
         self.assertEqual(app.count_entry.state, "disabled")
 
+        app.mode_var.set("range_full")
+        app._sync_range_state()
+        self.assertEqual(app.range_combo.state, "readonly")
+        self.assertEqual(app.count_entry.state, "disabled")
+
+        app.mode_var.set("custom")
+        app._sync_range_state()
+        self.assertEqual(app.range_combo.state, "disabled")
+        self.assertEqual(app.count_entry.state, "normal")
+
+    def test_custom_range_summary_uses_current_network_count(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.custom_networks = [object(), object()]
+        app.custom_range_summary_var = FakeVar()
+
+        app._refresh_custom_range_summary()
+
+        self.assertEqual(app.custom_range_summary_var.value, "2 custom ranges")
+
+    def test_custom_ranges_are_added_to_single_range_selector(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.cloudflare_networks = [ipaddress.ip_network("104.16.0.0/30")]
+        app.custom_networks = [ipaddress.ip_network("192.0.2.0/30")]
+        app.range_var = FakeVar("")
+        app.range_combo = FakeCombo()
+
+        app._refresh_range_options()
+
+        self.assertEqual(len(app.ranges_by_label), 2)
+        self.assertTrue(any(label.startswith("Custom: 192.0.2.0/30") for label in app.ranges_by_label))
+        self.assertEqual(app.range_combo.current_index, 0)
+
     def test_safe_config_filename_uses_config_extension(self):
         app = object.__new__(gui.ProxyTesterGui)
 
         self.assertEqual(app._safe_config_filename("my config.txt"), "my-config.config")
         self.assertEqual(app._safe_config_filename("ready.config"), "ready.config")
         self.assertEqual(app._safe_config_filename(""), "config.config")
+
+    def test_contains_supported_config_accepts_config_after_comment(self):
+        app = object.__new__(gui.ProxyTesterGui)
+
+        self.assertTrue(app._contains_supported_config("# primary\nvmess://encoded"))
+        self.assertFalse(app._contains_supported_config("https://example.com"))
 
     def test_next_available_config_filename_adds_incrementing_suffix(self):
         app = object.__new__(gui.ProxyTesterGui)
@@ -291,6 +385,52 @@ class GuiTests(unittest.TestCase):
                 app._create_config_file("invalid.config", "vless://invalid")
 
             self.assertFalse(os.path.exists(os.path.join(config_dir, "invalid.config")))
+
+    def test_replace_config_file_validates_then_renames(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        with tempfile.TemporaryDirectory() as config_dir, patch.object(gui_config, "CONFIG_DIR", config_dir), patch.object(
+            gui_config, "parse_proxy_config"
+        ) as parse:
+            source = os.path.join(config_dir, "old.config")
+            with open(source, "w", encoding="utf-8") as config_file:
+                config_file.write("vless://old\n")
+
+            target = app._replace_config_file(source, "renamed.config", "trojan://new")
+
+            self.assertFalse(os.path.exists(source))
+            with open(target, "r", encoding="utf-8") as config_file:
+                self.assertEqual(config_file.read(), "trojan://new\n")
+            parse.assert_called_once()
+
+    def test_replace_config_file_keeps_original_when_edit_is_invalid(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        with tempfile.TemporaryDirectory() as config_dir, patch.object(gui_config, "CONFIG_DIR", config_dir), patch.object(
+            gui_config, "parse_proxy_config", side_effect=ValueError("invalid")
+        ):
+            source = os.path.join(config_dir, "working.config")
+            with open(source, "w", encoding="utf-8") as config_file:
+                config_file.write("vless://working\n")
+
+            with self.assertRaisesRegex(ValueError, "invalid"):
+                app._replace_config_file(source, "working.config", "vless://broken")
+
+            with open(source, "r", encoding="utf-8") as config_file:
+                self.assertEqual(config_file.read(), "vless://working\n")
+            self.assertEqual(os.listdir(config_dir), ["working.config"])
+
+    def test_replace_config_file_refuses_duplicate_name(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        with tempfile.TemporaryDirectory() as config_dir, patch.object(gui_config, "CONFIG_DIR", config_dir):
+            source = os.path.join(config_dir, "first.config")
+            target = os.path.join(config_dir, "second.config")
+            for path in (source, target):
+                with open(path, "w", encoding="utf-8") as config_file:
+                    config_file.write("vless://original\n")
+
+            with self.assertRaises(FileExistsError):
+                app._replace_config_file(source, "second.config", "vless://replacement")
+
+            self.assertTrue(os.path.exists(source))
 
     def test_speed_fragment_settings_uses_configured_values(self):
         app = object.__new__(gui.ProxyTesterGui)

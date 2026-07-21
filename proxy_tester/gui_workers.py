@@ -5,10 +5,11 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from tkinter import messagebox
 
 from . import cloudflare
+from .gui_utils import merge_rows_by_ip, numeric_sort_value
+from .metrics import normalize_failed_metric
 from .settings import AppSettings
 from .storage import append_log_line, create_log_file, read_working_ips, save_scan_results
 from .xray import DEFAULT_SPEED_TEST_BYTES, DEFAULT_SPEED_TEST_TIMEOUT_MS, test_ip
-from .gui_utils import merge_rows_by_ip, numeric_sort_value
 
 
 class WorkerMixin:
@@ -85,6 +86,13 @@ class WorkerMixin:
         if self.mode_var.get() == "all_full":
             return list(cloudflare.all_candidates()), "all Cloudflare IPs"
 
+        if self.mode_var.get() == "range_full":
+            net = self.ranges_by_label.get(self.range_var.get())
+            if net is None:
+                messagebox.showerror("IP Range Required", "Select an IP range.")
+                return None, None
+            return list(cloudflare.usable_ips_from_network(net)), f"every IP in {net}"
+
         try:
             count = int(self.count_var.get())
             if count <= 0:
@@ -96,9 +104,24 @@ class WorkerMixin:
         if self.mode_var.get() == "all":
             return list(cloudflare.random_candidates(count)), "all Cloudflare ranges"
 
+        if self.mode_var.get() == "custom":
+            if not self.custom_networks:
+                messagebox.showerror("Custom Ranges Required", "Add at least one custom IPv4 range first.")
+                return None, None
+            return (
+                list(
+                    cloudflare.random_candidates_from_networks(
+                        self.custom_networks,
+                        count,
+                        "custom IPv4 addresses",
+                    )
+                ),
+                f"{len(self.custom_networks)} custom ranges",
+            )
+
         net = self.ranges_by_label.get(self.range_var.get())
         if net is None:
-            messagebox.showerror("Cloudflare Range Required", "Select a Cloudflare IP range.")
+            messagebox.showerror("IP Range Required", "Select an IP range.")
             return None, None
         return list(cloudflare.random_candidates_from_network(net, count)), str(net)
 
@@ -316,6 +339,9 @@ class WorkerMixin:
             normalized["download_mbps"] = -1
         if speed_mode in ("upload", "both") and "upload_mbps" not in normalized:
             normalized["upload_mbps"] = -1
+        for key in ("ms", "download_mbps", "upload_mbps"):
+            if key in normalized:
+                normalized[key] = normalize_failed_metric(normalized[key])
         return normalized
 
     def _drain_events(self):

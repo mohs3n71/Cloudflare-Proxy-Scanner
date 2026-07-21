@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 import zipfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 from tools import build_release, xray_release
 
@@ -137,6 +137,37 @@ class XrayReleaseTests(unittest.TestCase):
         self.assertEqual(path, binary_path)
         self.assertIsNone(version)
 
+    def test_if_missing_uses_existing_binary_when_update_download_fails(self):
+        release = {
+            "tag_name": "v9",
+            "assets": [
+                {
+                    "name": "Xray-linux-64.zip",
+                    "browser_download_url": "https://example.com/xray.zip",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as output_dir:
+            binary_path = os.path.join(output_dir, "xray")
+            with open(binary_path, "wb") as binary_file:
+                binary_file.write(b"existing")
+            with patch.object(xray_release, "resolve_release", return_value=release) as resolve, patch.object(
+                xray_release, "_read_bytes", side_effect=OSError("download failed")
+            ) as read_bytes:
+                path, version = xray_release.download_xray("linux", "x64", output_dir, if_missing=True)
+
+        self.assertEqual(path, binary_path)
+        self.assertIsNone(version)
+        resolve.assert_called_once_with("latest", timeout=3, attempts=1)
+        read_bytes.assert_called_once_with("https://example.com/xray.zip", timeout=30, attempts=1, progress=None)
+
+    def test_missing_binary_error_includes_manual_install_path(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            message = xray_release.xray_unavailable_message(output_dir, "windows")
+
+        self.assertIn(os.path.abspath(os.path.join(output_dir, "xray.exe")), message)
+        self.assertIn("copy it to", message)
+
     def test_if_missing_reuses_binary_when_latest_metadata_matches(self):
         release = {"tag_name": "v2", "assets": []}
         with tempfile.TemporaryDirectory() as output_dir:
@@ -177,6 +208,18 @@ class XrayReleaseTests(unittest.TestCase):
             with self.assertRaises(xray_release.urllib.error.HTTPError):
                 xray_release._request_bytes(object(), timeout=1)
         urlopen.assert_called_once()
+
+    def test_request_bytes_with_progress_reports_downloaded_bytes(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.headers = {"Content-Length": "5"}
+        response.read.side_effect = [b"abc", b"de", b""]
+        progress = Mock()
+        with patch.object(xray_release.urllib.request, "urlopen", return_value=response):
+            content = xray_release._request_bytes_with_progress(object(), 10, 1, progress)
+
+        self.assertEqual(content, b"abcde")
+        self.assertEqual(progress.call_args_list, [call(0, 5), call(3, 5), call(5, 5)])
 
     def test_read_json_authenticates_with_github_token_when_available(self):
         response = MagicMock()
@@ -262,6 +305,8 @@ class BuildReleaseTests(unittest.TestCase):
         self.assertIn("--onefile", command)
         self.assertIn("--windowed", command)
         self.assertIn(f"runtime/xray{os.pathsep}bin/xray", command)
+        self.assertTrue(command[-1].endswith(os.path.join("proxy_tester", "gui_entry.py")))
+        self.assertNotIn("launcher", command[-1])
 
     def test_collect_release_artifact_handles_windows_linux_and_macos(self):
         with tempfile.TemporaryDirectory() as root:

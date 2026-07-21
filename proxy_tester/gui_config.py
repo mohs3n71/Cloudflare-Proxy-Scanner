@@ -1,4 +1,5 @@
 import os
+import tempfile
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -6,6 +7,7 @@ from .paths import CONFIG_DIR
 from .storage import config_files, output_csv_files, read_working_ips, save_scan_results, save_proxy_configs
 from .proxy_config import parse_proxy_config
 from .gui_utils import numeric_sort_value
+from .metrics import normalize_failed_metric
 
 
 class ConfigMixin:
@@ -21,13 +23,15 @@ class ConfigMixin:
             self.config_var.set("")
             self.status_var.set("No proxy configuration found. Add one to enable scanning and speed tests.")
             self._sync_config_action_state()
+            self._sync_config_management_state()
 
     def _sync_range_state(self):
-        if self.mode_var.get() == "range":
+        if self.mode_var.get() in ("range", "range_full"):
             self.range_combo.configure(state="readonly")
         else:
             self.range_combo.configure(state="disabled")
-        self.count_entry.configure(state="disabled" if self.mode_var.get() == "all_full" else "normal")
+        full_mode = self.mode_var.get() in ("all_full", "range_full")
+        self.count_entry.configure(state="disabled" if full_mode else "normal")
 
     def _sync_speed_fragment_state(self):
         state = "normal" if self.speed_fragment_enabled_var.get() else "disabled"
@@ -43,6 +47,7 @@ class ConfigMixin:
         if not name:
             self.profile = None
             self._sync_config_action_state()
+            self._sync_config_management_state()
             return
         try:
             self.profile = parse_proxy_config(self.config_paths_by_name[name])
@@ -52,6 +57,17 @@ class ConfigMixin:
             self.profile = None
             messagebox.showerror("Configuration Error", str(exc))
         self._sync_config_action_state()
+        self._sync_config_management_state()
+
+    def _selected_config_path(self):
+        return self.config_paths_by_name.get(self.config_var.get())
+
+    def _sync_config_management_state(self):
+        state = "normal" if self._selected_config_path() else "disabled"
+        for name in ("edit_config_button", "remove_config_button"):
+            button = self.__dict__.get(name)
+            if button is not None:
+                button.configure(state=state)
 
     def _sync_config_action_state(self):
         state = "normal" if self.profile is not None else "disabled"
@@ -65,8 +81,34 @@ class ConfigMixin:
             self._set_runner_speed_state(False)
 
     def open_add_config_modal(self):
+        self._open_config_modal(
+            title="Add Proxy Configuration",
+            initial_name=self._next_available_config_filename("new-config.config"),
+            initial_value="",
+            save_action=self._create_config_file,
+        )
+
+    def open_edit_config_modal(self):
+        path = self._selected_config_path()
+        if not path:
+            messagebox.showwarning("Configuration Required", "Select a configuration to edit.")
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as config_file:
+                value = config_file.read().strip()
+        except OSError as exc:
+            messagebox.showerror("Configuration Error", str(exc))
+            return
+        self._open_config_modal(
+            title="Edit Proxy Configuration",
+            initial_name=os.path.basename(path),
+            initial_value=value,
+            save_action=lambda name, content: self._replace_config_file(path, name, content),
+        )
+
+    def _open_config_modal(self, title, initial_name, initial_value, save_action):
         modal = tk.Toplevel(self)
-        modal.title("Add Proxy Configuration")
+        modal.title(title)
         modal.geometry("640x320")
         modal.resizable(False, False)
         modal.transient(self)
@@ -75,11 +117,13 @@ class ConfigMixin:
         frame = ttk.Frame(modal, padding=12)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Configuration name (unique)").pack(anchor="w")
-        name_var = tk.StringVar(value=self._next_available_config_filename("new-config.config"))
+        name_var = tk.StringVar(value=initial_name)
         ttk.Entry(frame, textvariable=name_var).pack(fill="x", pady=(4, 10))
-        ttk.Label(frame, text="Proxy URL").pack(anchor="w")
+        ttk.Label(frame, text="Proxy configuration").pack(anchor="w")
         text = tk.Text(frame, height=8, wrap="word")
         text.pack(fill="both", expand=True, pady=(4, 10))
+        if initial_value:
+            text.insert("1.0", initial_value)
 
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x")
@@ -87,14 +131,14 @@ class ConfigMixin:
         def save_config():
             name = self._safe_config_filename(name_var.get())
             value = text.get("1.0", "end").strip()
-            if not value.startswith(("vless://", "vmess://", "trojan://")):
+            if not self._contains_supported_config(value):
                 messagebox.showerror(
                     "Invalid Configuration",
                     "Enter one VLESS, VMess, or Trojan proxy URL.",
                 )
                 return
             try:
-                path = self._create_config_file(name, value)
+                path = save_action(name, value)
             except FileExistsError:
                 messagebox.showerror(
                     "Configuration Already Exists",
@@ -111,6 +155,12 @@ class ConfigMixin:
 
         ttk.Button(buttons, text="Save Configuration", command=save_config).pack(side="right")
         ttk.Button(buttons, text="Cancel", command=modal.destroy).pack(side="right", padx=(0, 8))
+
+    def _contains_supported_config(self, value):
+        return any(
+            line.strip().startswith(("vless://", "vmess://", "trojan://"))
+            for line in value.splitlines()
+        )
 
     def _safe_config_filename(self, value):
         name = "".join(char if char.isalnum() or char in ("-", "_", ".") else "-" for char in value.strip())
@@ -144,6 +194,54 @@ class ConfigMixin:
                 os.remove(path)
             raise
         return path
+
+    def _replace_config_file(self, source_path, name, value):
+        target_path = os.path.join(CONFIG_DIR, self._safe_config_filename(name))
+        same_file = os.path.normcase(os.path.abspath(source_path)) == os.path.normcase(os.path.abspath(target_path))
+        if not same_file and os.path.exists(target_path):
+            raise FileExistsError(target_path)
+
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=CONFIG_DIR,
+                prefix=".config-edit-",
+                suffix=".config",
+                delete=False,
+            ) as temporary_file:
+                temporary_file.write(value.rstrip() + "\n")
+                temporary_path = temporary_file.name
+            parse_proxy_config(temporary_path)
+            os.replace(temporary_path, target_path)
+            temporary_path = None
+            if not same_file and os.path.exists(source_path):
+                os.remove(source_path)
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.remove(temporary_path)
+        return target_path
+
+    def remove_selected_config(self):
+        path = self._selected_config_path()
+        if not path:
+            messagebox.showwarning("Configuration Required", "Select a configuration to remove.")
+            return
+        name = os.path.basename(path)
+        if not messagebox.askyesno(
+            "Remove Configuration",
+            f'Remove "{name}"? This cannot be undone.',
+            parent=self,
+        ):
+            return
+        try:
+            os.remove(path)
+        except OSError as exc:
+            messagebox.showerror("Remove Failed", str(exc))
+            return
+        self._load_configs()
+        self._log(f"Removed configuration: {name}")
 
     def _load_outputs(self):
         self.output_paths_by_name = {os.path.basename(path): path for path in output_csv_files()}
@@ -184,7 +282,8 @@ class ConfigMixin:
         if value in (None, ""):
             return default
         try:
-            return caster(float(value)) if caster is int else caster(value)
+            number = caster(float(value)) if caster is int else caster(value)
+            return normalize_failed_metric(number)
         except ValueError:
             return default
 

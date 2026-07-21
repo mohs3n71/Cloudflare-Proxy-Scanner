@@ -18,10 +18,4 @@ if exist "%CODEX_PYTHON_DIR%\python.exe" (
     )
 )
 
-"%PYTHON_EXE%" tools\xray_release.py --if-missing
-if errorlevel 1 (
-    pause
-    exit /b 1
-)
-
-start "" "%PYTHONW_EXE%" -m proxy_tester.gui
+start "" "%PYTHONW_EXE%" -m proxy_tester.launcher

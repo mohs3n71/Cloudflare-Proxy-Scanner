@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import queue
 import json
@@ -74,6 +75,17 @@ class GuiConfigExtendedTests(unittest.TestCase):
             app._result_from_csv_row({"ip": " 1.1.1.1 ", "latency_ms": "bad"}),
             {"ip": "1.1.1.1", "ok": True, "ms": -1, "download_mbps": "", "upload_mbps": ""},
         )
+        self.assertEqual(
+            app._result_from_csv_row(
+                {
+                    "ip": "1.1.1.1",
+                    "latency_ms": "-1.0",
+                    "download_mbps": "-1.0",
+                    "upload_mbps": "-1",
+                }
+            ),
+            {"ip": "1.1.1.1", "ok": True, "ms": -1, "download_mbps": -1, "upload_mbps": -1},
+        )
 
     def test_select_config_handles_success_and_parse_failure(self):
         app = self.make_app()
@@ -96,6 +108,44 @@ class GuiConfigExtendedTests(unittest.TestCase):
         self.assertIsNone(app.profile)
         showerror.assert_called_once()
         self.assertEqual(app._sync_config_action_state.call_count, 2)
+
+    def test_config_management_buttons_follow_selected_file(self):
+        app = self.make_app()
+        app.config_var = FakeVar("demo.config")
+        app.config_paths_by_name = {"demo.config": "configs/demo.config"}
+        app.edit_config_button = FakeButton()
+        app.remove_config_button = FakeButton()
+
+        app._sync_config_management_state()
+
+        self.assertEqual(app.edit_config_button.state, "normal")
+        self.assertEqual(app.remove_config_button.state, "normal")
+        app.config_var.set("")
+        app._sync_config_management_state()
+        self.assertEqual(app.edit_config_button.state, "disabled")
+        self.assertEqual(app.remove_config_button.state, "disabled")
+
+    def test_remove_selected_config_requires_confirmation(self):
+        app = self.make_app()
+        app.config_var = FakeVar("demo.config")
+        app._load_configs = Mock()
+        app._log = Mock()
+        with tempfile.TemporaryDirectory() as config_dir:
+            path = os.path.join(config_dir, "demo.config")
+            with open(path, "w", encoding="utf-8") as config_file:
+                config_file.write("vless://demo\n")
+            app.config_paths_by_name = {"demo.config": path}
+
+            with patch.object(gui_config.messagebox, "askyesno", return_value=False):
+                app.remove_selected_config()
+            self.assertTrue(os.path.exists(path))
+
+            with patch.object(gui_config.messagebox, "askyesno", return_value=True):
+                app.remove_selected_config()
+            self.assertFalse(os.path.exists(path))
+
+        app._load_configs.assert_called_once()
+        app._log.assert_called_once_with("Removed configuration: demo.config")
 
     def test_create_proxy_configs_saves_rows_and_refreshes_outputs(self):
         app = self.make_app()
@@ -165,6 +215,38 @@ class GuiWorkerExtendedTests(unittest.TestCase):
         with patch.object(gui_workers.messagebox, "showerror") as showerror:
             self.assertEqual(app._make_scan_ips(), (None, None))
         showerror.assert_called_once()
+
+    def test_make_scan_ips_supports_saved_custom_ranges(self):
+        app = self.make_worker()
+        app.mode_var = FakeVar("custom")
+        app.count_var = FakeVar("3")
+        app.range_var = FakeVar("")
+        app.ranges_by_label = {}
+        app.custom_networks = [ipaddress.ip_network("192.0.2.0/29")]
+
+        ips, source = app._make_scan_ips()
+
+        self.assertEqual(len(ips), 3)
+        self.assertEqual(source, "1 custom ranges")
+        self.assertTrue(all(ipaddress.ip_address(ip) in app.custom_networks[0] for ip in ips))
+
+        app.custom_networks = []
+        with patch.object(gui_workers.messagebox, "showerror") as showerror:
+            self.assertEqual(app._make_scan_ips(), (None, None))
+        showerror.assert_called_once()
+
+    def test_make_scan_ips_supports_every_ip_in_selected_range(self):
+        app = self.make_worker()
+        network = ipaddress.ip_network("192.0.2.0/30")
+        app.mode_var = FakeVar("range_full")
+        app.count_var = FakeVar("ignored")
+        app.range_var = FakeVar("selected")
+        app.ranges_by_label = {"selected": network}
+
+        self.assertEqual(
+            app._make_scan_ips(),
+            (["192.0.2.1", "192.0.2.2"], "every IP in 192.0.2.0/30"),
+        )
 
     def test_scan_worker_saves_passed_results_and_reports_done(self):
         app = self.make_worker()

@@ -177,6 +177,34 @@ class XrayTests(unittest.TestCase):
 
         self.assertEqual(xray.tls_alpn_for_xray(profile), ["http/1.1"])
 
+    def test_make_stream_settings_supports_xhttp(self):
+        profile = ProxyProfile(
+            **{
+                **sample_profile().__dict__,
+                "network": "xhttp",
+                "alpn": "h2,http/1.1",
+                "ws_host": "cdn.example.com",
+                "ws_path": "/xhttp",
+                "xhttp_mode": "packet-up",
+                "xhttp_extra": {"xPaddingBytes": "100-1000"},
+            }
+        )
+
+        settings = xray.make_stream_settings(profile)
+
+        self.assertEqual(settings["network"], "xhttp")
+        self.assertNotIn("wsSettings", settings)
+        self.assertEqual(settings["tlsSettings"]["alpn"], ["h2", "http/1.1"])
+        self.assertEqual(
+            settings["xhttpSettings"],
+            {
+                "host": "cdn.example.com",
+                "path": "/xhttp",
+                "mode": "packet-up",
+                "extra": {"xPaddingBytes": "100-1000"},
+            },
+        )
+
     def test_mbps_calculation(self):
         self.assertEqual(xray.mbps(1_000_000, 1), 8.0)
         self.assertEqual(xray.mbps(1_000_000, 0), 0.0)

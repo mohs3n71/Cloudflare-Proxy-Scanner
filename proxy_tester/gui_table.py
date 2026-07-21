@@ -1,6 +1,18 @@
 from .gui_utils import table_sort_value
+from .metrics import normalize_failed_metric
 from .gui_qr import open_config_qr
 from .proxy_config import make_proxy_url
+
+
+TABLE_COLUMN_LABELS = {
+    "ping": "Latency (ms)",
+    "ip": "IP",
+    "download": "Download (Mbps)",
+    "upload": "Upload (Mbps)",
+}
+SORT_ASCENDING_ICON = "▲"
+SORT_DESCENDING_ICON = "▼"
+SORT_ACTIVE_ICON = "▶"
 
 
 class TableMixin:
@@ -124,6 +136,7 @@ class TableMixin:
             return
 
     def _refresh_passed_table(self):
+        self._update_sort_headings()
         for item in self.table.get_children():
             self.table.delete(item)
         self.table_items_by_ip = {}
@@ -138,10 +151,10 @@ class TableMixin:
 
     def _table_values(self, result):
         return (
-            result["ms"],
+            normalize_failed_metric(result["ms"]),
             result["ip"],
-            result.get("download_mbps", ""),
-            result.get("upload_mbps", ""),
+            normalize_failed_metric(result.get("download_mbps", "")),
+            normalize_failed_metric(result.get("upload_mbps", "")),
         )
 
     def _table_tags(self, result):
@@ -179,6 +192,15 @@ class TableMixin:
             self.sort_column = column
             self.sort_reverse = False
         self._refresh_passed_table()
+
+    def _update_sort_headings(self):
+        heading = getattr(self.table, "heading", None)
+        if not callable(heading):
+            return
+        direction = SORT_DESCENDING_ICON if self.sort_reverse else SORT_ASCENDING_ICON
+        for column, label in TABLE_COLUMN_LABELS.items():
+            text = f"{SORT_ACTIVE_ICON} {label} {direction}" if column == self.sort_column else label
+            heading(column, text=text)
 
     def _sorted_results(self):
         return sorted(self.passed_results, key=self._sort_value, reverse=self.sort_reverse)

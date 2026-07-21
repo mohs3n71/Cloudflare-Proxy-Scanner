@@ -74,6 +74,22 @@ class CloudflareTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(cloudflare.random_candidates_from_network(net, 3))
 
+    def test_random_candidates_from_multiple_custom_networks_are_unique(self):
+        items = [ipaddress.ip_network("192.0.2.0/29"), ipaddress.ip_network("198.51.100.0/29")]
+
+        candidates = list(cloudflare.random_candidates_from_networks(items, 8, "custom IPv4 addresses"))
+
+        self.assertEqual(len(candidates), 8)
+        self.assertEqual(len(set(candidates)), 8)
+        self.assertTrue(all(any(ipaddress.ip_address(ip) in network for network in items) for ip in candidates))
+
+    def test_random_candidates_from_multiple_networks_validates_capacity(self):
+        items = [ipaddress.ip_network("192.0.2.1/32")]
+        with self.assertRaisesRegex(ValueError, "only 1 usable custom IPv4 addresses"):
+            list(cloudflare.random_candidates_from_networks(items, 2, "custom IPv4 addresses"))
+        with self.assertRaisesRegex(ValueError, "No IP ranges"):
+            list(cloudflare.random_candidates_from_networks([], 1))
+
 
 if __name__ == "__main__":
     unittest.main()

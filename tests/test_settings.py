@@ -5,14 +5,39 @@ import unittest
 
 from proxy_tester.settings import (
     DEFAULT_FRAGMENT_ENABLED,
+    DEFAULT_APPEARANCE_MODE,
     RunnerSettings,
     SYSTEM_PROXY_SET,
+    load_custom_range_values,
+    load_appearance_mode,
     load_runner_settings,
+    save_custom_range_values,
+    save_appearance_mode,
     save_runner_settings,
 )
 
 
 class RunnerSettingsTests(unittest.TestCase):
+    def test_appearance_round_trip_preserves_other_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "settings.json")
+            save_runner_settings(RunnerSettings(port="2080"), path)
+
+            save_appearance_mode("dark", path)
+
+            self.assertEqual(load_appearance_mode(path), "dark")
+            self.assertEqual(load_runner_settings(path).port, "2080")
+
+    def test_invalid_appearance_uses_default_and_cannot_be_saved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "settings.json")
+            with open(path, "w", encoding="utf-8") as settings_file:
+                json.dump({"appearance": "neon"}, settings_file)
+
+            self.assertEqual(load_appearance_mode(path), DEFAULT_APPEARANCE_MODE)
+            with self.assertRaises(ValueError):
+                save_appearance_mode("neon", path)
+
     def test_fragmentation_is_disabled_by_default(self):
         self.assertFalse(DEFAULT_FRAGMENT_ENABLED)
         self.assertFalse(RunnerSettings().fragment_enabled)
@@ -51,6 +76,15 @@ class RunnerSettingsTests(unittest.TestCase):
                 saved = json.load(settings_file)
             self.assertEqual(saved["scanner"], {"parallel": 50})
             self.assertEqual(saved["xray_runner"]["port"], "2080")
+
+    def test_custom_ranges_round_trip_and_preserve_runner_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "settings.json")
+            save_runner_settings(RunnerSettings(port="2080"), path)
+            save_custom_range_values(["192.0.2.0/24", "198.51.100.7/32"], path)
+
+            self.assertEqual(load_custom_range_values(path), ["192.0.2.0/24", "198.51.100.7/32"])
+            self.assertEqual(load_runner_settings(path).port, "2080")
 
     def test_load_runner_settings_uses_defaults_for_invalid_values(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,4 +1,5 @@
 import os
+import json
 import urllib.parse
 import unittest
 
@@ -108,6 +109,68 @@ class VlessTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_proxy_config(path)
 
+    def test_parse_vless_xhttp_config_reads_transport_settings(self):
+        extra = {"xPaddingBytes": "100-1000", "xmux": {"maxConcurrency": 1}}
+        query = urllib.parse.urlencode(
+            {
+                "security": "tls",
+                "type": "xhttp",
+                "host": "cdn.example.com",
+                "path": "/xhttp",
+                "mode": "packet-up",
+                "extra": json.dumps(extra),
+                "sni": "example.com",
+                "alpn": "h2",
+            }
+        )
+        with temp_text_file(f"vless://uuid@example.com:443?{query}") as path:
+            profile = parse_proxy_config(path)
+
+        self.assertEqual(profile.network, "xhttp")
+        self.assertEqual(profile.ws_host, "cdn.example.com")
+        self.assertEqual(profile.ws_path, "/xhttp")
+        self.assertEqual(profile.xhttp_mode, "packet-up")
+        self.assertEqual(profile.xhttp_extra, extra)
+
+    def test_parse_vless_normalizes_splithttp_alias(self):
+        with temp_text_file("vless://uuid@example.com:443?type=splithttp&path=%2Fold") as path:
+            profile = parse_proxy_config(path)
+
+        self.assertEqual(profile.network, "xhttp")
+        self.assertEqual(profile.ws_path, "/old")
+
+    def test_parse_vmess_xhttp_accepts_extra_object(self):
+        payload = {
+            "add": "example.com",
+            "port": "443",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "net": "xhttp",
+            "host": "cdn.example.com",
+            "path": "/xhttp",
+            "mode": "stream-up",
+            "extra": {"noGRPCHeader": True},
+        }
+        with temp_text_file(f"vmess://{encode_base64(json.dumps(payload))}") as path:
+            profile = parse_proxy_config(path)
+
+        self.assertEqual(profile.network, "xhttp")
+        self.assertEqual(profile.xhttp_mode, "stream-up")
+        self.assertEqual(profile.xhttp_extra, {"noGRPCHeader": True})
+
+    def test_parse_trojan_xhttp_config_reads_transport_settings(self):
+        url = "trojan://secret@example.com:443?security=tls&type=xhttp&path=%2Fx&mode=stream-one&extra=%7B%22xPaddingBytes%22%3A%2210-20%22%7D"
+        with temp_text_file(url) as path:
+            profile = parse_proxy_config(path)
+
+        self.assertEqual(profile.network, "xhttp")
+        self.assertEqual(profile.xhttp_mode, "stream-one")
+        self.assertEqual(profile.xhttp_extra, {"xPaddingBytes": "10-20"})
+
+    def test_parse_xhttp_rejects_invalid_extra_json(self):
+        with temp_text_file("vless://uuid@example.com:443?type=xhttp&extra=not-json") as path:
+            with self.assertRaisesRegex(ValueError, "Invalid XHTTP extra JSON"):
+                parse_proxy_config(path)
+
     def test_make_proxy_url_uses_profile_and_encodes_values(self):
         url = make_proxy_url("104.16.1.1", "name with spaces", sample_profile())
         parsed = urllib.parse.urlparse(url)
@@ -120,6 +183,48 @@ class VlessTests(unittest.TestCase):
         self.assertEqual(query["sni"][0], "example.com")
         self.assertEqual(query["path"][0], "/ws")
         self.assertEqual(urllib.parse.unquote(parsed.fragment), "name with spaces")
+
+    def test_make_proxy_url_preserves_xhttp_settings(self):
+        source = "vless://uuid@example.com:443?type=xhttp&host=cdn.example.com&path=%2Fx&mode=packet-up&extra=%7B%22xPaddingBytes%22%3A%2210-20%22%7D"
+        with temp_text_file(source) as path:
+            profile = parse_proxy_config(path)
+
+        generated = make_proxy_url("104.16.1.1", "xhttp result", profile)
+        parsed = urllib.parse.urlparse(generated)
+        query = urllib.parse.parse_qs(parsed.query)
+
+        self.assertEqual(query["type"], ["xhttp"])
+        self.assertEqual(query["mode"], ["packet-up"])
+        self.assertEqual(json.loads(query["extra"][0]), {"xPaddingBytes": "10-20"})
+
+    def test_xhttp_generated_urls_round_trip_for_all_protocols(self):
+        extra = {"xmux": {"maxConcurrency": 1}}
+        encoded_extra = urllib.parse.quote(json.dumps(extra), safe="")
+        vmess_payload = {
+            "add": "example.com",
+            "port": "443",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "net": "xhttp",
+            "path": "/x",
+            "mode": "stream-up",
+            "extra": json.dumps(extra),
+        }
+        sources = (
+            f"vless://uuid@example.com:443?type=xhttp&path=%2Fx&mode=stream-up&extra={encoded_extra}",
+            f"vmess://{encode_base64(json.dumps(vmess_payload))}",
+            f"trojan://secret@example.com:443?type=xhttp&path=%2Fx&mode=stream-up&extra={encoded_extra}",
+        )
+
+        for source in sources:
+            with self.subTest(scheme=source.split(":", 1)[0]):
+                with temp_text_file(source) as source_path:
+                    generated = make_proxy_url("104.16.1.1", "result", parse_proxy_config(source_path))
+                with temp_text_file(generated) as generated_path:
+                    reparsed = parse_proxy_config(generated_path)
+
+                self.assertEqual(reparsed.network, "xhttp")
+                self.assertEqual(reparsed.xhttp_mode, "stream-up")
+                self.assertEqual(reparsed.xhttp_extra, extra)
 
     def test_make_vmess_url_uses_profile_and_ip(self):
         payload = {

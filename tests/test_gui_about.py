@@ -10,11 +10,14 @@ from proxy_tester import gui_about
 
 
 class FakeVar:
-    def __init__(self):
-        self.value = None
+    def __init__(self, value=None):
+        self.value = value
 
     def set(self, value):
         self.value = value
+
+    def get(self):
+        return self.value
 
 
 class FakeButton:
@@ -25,7 +28,33 @@ class FakeButton:
         self.state = kwargs.get("state", self.state)
 
 
+class FakeTable:
+    def __init__(self):
+        self.active_background = None
+
+    def tag_configure(self, tag, **kwargs):
+        if tag == "active":
+            self.active_background = kwargs.get("background")
+
+
 class AboutTests(unittest.TestCase):
+    def test_appearance_control_applies_and_saves_dark_mode(self):
+        app = object.__new__(gui_about.AboutMixin)
+        app.appearance_var = FakeVar(True)
+        app.table = FakeTable()
+        palette = {"active_row": "#514a2f"}
+
+        with patch.object(gui_about, "apply_theme", return_value=palette) as apply, patch.object(
+            gui_about, "save_appearance_mode"
+        ) as save:
+            app._set_appearance_from_control()
+
+        self.assertEqual(app.appearance_mode, gui_about.DARK_MODE)
+        self.assertEqual(app.theme_palette, palette)
+        self.assertEqual(app.table.active_background, "#514a2f")
+        apply.assert_called_once_with(app, gui_about.DARK_MODE)
+        save.assert_called_once_with(gui_about.DARK_MODE)
+
     def test_xray_version_uses_packaged_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             executable = os.path.join(directory, "xray")

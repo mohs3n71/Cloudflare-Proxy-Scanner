@@ -1,4 +1,5 @@
 import argparse
+import ctypes
 import json
 import os
 import platform
@@ -86,8 +87,8 @@ def select_latest_published_release(releases):
     return max(published, key=lambda release: release["published_at"])
 
 
-def resolve_release(version):
-    release_data = _read_json(release_api_url(version))
+def resolve_release(version, timeout=10, attempts=2):
+    release_data = _read_json(release_api_url(version), timeout=timeout, attempts=attempts)
     if (version or "latest").strip().lower() == "latest":
         if not isinstance(release_data, list):
             raise RuntimeError("GitHub returned an invalid Xray release list.")
@@ -127,7 +128,31 @@ def _request_bytes(request, timeout, attempts=3):
             time.sleep(2**attempt)
 
 
-def _read_json(url):
+def _request_bytes_with_progress(request, timeout, attempts, progress):
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                total = int(response.headers.get("Content-Length") or 0)
+                downloaded = 0
+                chunks = []
+                progress(downloaded, total)
+                while True:
+                    chunk = response.read(256 * 1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    progress(downloaded, total)
+                return b"".join(chunks)
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(2**attempt)
+
+
+def _read_json(url, timeout=10, attempts=2):
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "Cloudflare-Proxy-Scanner"}
     github_token = os.environ.get("GH_TOKEN", "").strip()
     if github_token:
@@ -136,12 +161,14 @@ def _read_json(url):
         url,
         headers=headers,
     )
-    return json.loads(_request_bytes(request, timeout=10, attempts=2).decode("utf-8"))
+    return json.loads(_request_bytes(request, timeout=timeout, attempts=attempts).decode("utf-8"))
 
 
-def _read_bytes(url):
+def _read_bytes(url, timeout=120, attempts=3, progress=None):
     request = urllib.request.Request(url, headers={"User-Agent": "Cloudflare-Proxy-Scanner"})
-    return _request_bytes(request, timeout=120)
+    if progress is not None:
+        return _request_bytes_with_progress(request, timeout, attempts, progress)
+    return _request_bytes(request, timeout=timeout, attempts=attempts)
 
 
 def read_xray_metadata(output_dir):
@@ -169,46 +196,74 @@ def installed_xray_matches(output_dir, target_os, target_arch, version):
     return metadata == {"os": target_os, "arch": target_arch, "version": version}
 
 
-def download_xray(target_os, target_arch, output_dir, version="latest", if_missing=False):
+def download_xray(target_os, target_arch, output_dir, version="latest", if_missing=False, progress=None):
     target_os = normalize_os(target_os)
     target_arch = normalize_arch(target_arch)
     binary_name = archive_binary_name(target_os)
     binary_path = os.path.join(output_dir, binary_name)
+    existing_binary = if_missing and os.path.isfile(binary_path)
+    temporary_path = binary_path + ".tmp"
 
     asset_name = xray_asset_name(target_os, target_arch)
     try:
-        release = resolve_release(version)
+        release = resolve_release(
+            version,
+            timeout=3 if existing_binary else 10,
+            attempts=1 if existing_binary else 2,
+        )
+        resolved_version = release.get("tag_name")
+        if not resolved_version:
+            raise RuntimeError("GitHub returned an Xray release without a tag name.")
+        if existing_binary and installed_xray_matches(output_dir, target_os, target_arch, resolved_version):
+            return binary_path, None
+
+        download_url = select_release_asset(release, asset_name)
+        archive_bytes = _read_bytes(
+            download_url,
+            timeout=30 if existing_binary else 120,
+            attempts=1 if existing_binary else 3,
+            progress=progress,
+        )
+        with zipfile.ZipFile(BytesIO(archive_bytes)) as archive:
+            member = find_archive_member(archive.namelist(), binary_name)
+            binary = archive.read(member)
+
+        os.makedirs(output_dir, exist_ok=True)
+        with open(temporary_path, "wb") as output:
+            output.write(binary)
+        os.replace(temporary_path, binary_path)
+        if target_os != "windows":
+            os.chmod(binary_path, os.stat(binary_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        write_xray_metadata(output_dir, target_os, target_arch, resolved_version)
+        return binary_path, resolved_version
     except Exception:
-        if if_missing and os.path.isfile(binary_path):
+        if os.path.exists(temporary_path):
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
+        if existing_binary:
             return binary_path, None
         raise
-    resolved_version = release.get("tag_name")
-    if not resolved_version:
-        raise RuntimeError("GitHub returned an Xray release without a tag name.")
-    if if_missing and os.path.isfile(binary_path) and installed_xray_matches(
-        output_dir,
-        target_os,
-        target_arch,
-        resolved_version,
-    ):
-        return binary_path, None
 
-    download_url = select_release_asset(release, asset_name)
-    archive_bytes = _read_bytes(download_url)
 
-    with zipfile.ZipFile(BytesIO(archive_bytes)) as archive:
-        member = find_archive_member(archive.namelist(), binary_name)
-        binary = archive.read(member)
+def xray_unavailable_message(output_dir, target_os):
+    binary_path = os.path.abspath(os.path.join(output_dir, archive_binary_name(target_os)))
+    return (
+        "Xray is not available and the automatic download failed.\n\n"
+        "Download a compatible Xray binary and copy it to:\n"
+        f"{binary_path}\n\n"
+        "On Linux or macOS, also make the file executable with chmod +x."
+    )
 
-    os.makedirs(output_dir, exist_ok=True)
-    temporary_path = binary_path + ".tmp"
-    with open(temporary_path, "wb") as output:
-        output.write(binary)
-    os.replace(temporary_path, binary_path)
-    if target_os != "windows":
-        os.chmod(binary_path, os.stat(binary_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    write_xray_metadata(output_dir, target_os, target_arch, resolved_version)
-    return binary_path, resolved_version
+
+def show_error_dialog(title, message):
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)
+    except Exception:
+        pass
 
 
 def build_parser():
@@ -218,6 +273,7 @@ def build_parser():
     parser.add_argument("--version", default=os.environ.get("XRAY_VERSION", "latest"))
     parser.add_argument("--output-dir", default=os.path.join("bin", "xray"))
     parser.add_argument("--if-missing", action="store_true")
+    parser.add_argument("--show-error-dialog", action="store_true")
     return parser
 
 
@@ -232,7 +288,10 @@ def main():
             if_missing=args.if_missing,
         )
     except Exception as exc:
-        raise SystemExit(f"Xray download failed: {exc}") from exc
+        message = f"{xray_unavailable_message(args.output_dir, args.target_os)}\n\nError: {exc}"
+        if args.show_error_dialog:
+            show_error_dialog("Xray Is Required", message)
+        raise SystemExit(message) from exc
     suffix = f" ({version})" if version else " (already present)"
     print(f"Xray ready: {path}{suffix}")
 
