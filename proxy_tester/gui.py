@@ -6,6 +6,7 @@ from tkinter import ttk
 from . import cloudflare
 from .gui_about import AboutMixin
 from .gui_config import ConfigMixin
+from .gui_library import ProxyLibraryMixin
 from .gui_ranges import CustomRangeMixin
 from .gui_runner import RunnerMixin
 from .gui_table import TABLE_COLUMN_LABELS, TableMixin
@@ -16,6 +17,9 @@ from .settings import (
     AppSettings,
     CONCURRENCY_OPTIONS,
     DEFAULT_FRAGMENT_ENABLED,
+    DEFAULT_FRAGMENT_INTERVAL,
+    DEFAULT_FRAGMENT_LENGTH,
+    DEFAULT_FRAGMENT_PACKETS,
     load_custom_range_values,
     load_appearance_mode,
     load_runner_settings,
@@ -34,7 +38,16 @@ LEFT_PANEL_MIN_WIDTH = 450
 LEFT_PANEL_MIN_HEIGHT = 990
 
 
-class ProxyTesterGui(AboutMixin, ConfigMixin, CustomRangeMixin, RunnerMixin, TableMixin, WorkerMixin, tk.Tk):
+class ProxyTesterGui(
+    AboutMixin,
+    ConfigMixin,
+    ProxyLibraryMixin,
+    CustomRangeMixin,
+    RunnerMixin,
+    TableMixin,
+    WorkerMixin,
+    tk.Tk,
+):
     def __init__(self):
         super().__init__()
         ensure_project_dirs()
@@ -52,6 +65,7 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, CustomRangeMixin, RunnerMixin, Tab
         except ValueError:
             self.custom_networks = []
         self.profile = None
+        self.runner_profile = None
         self.worker_thread = None
         self.stop_event = threading.Event()
         self.active_processes = set()
@@ -74,6 +88,7 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, CustomRangeMixin, RunnerMixin, Tab
         self.runner_fragment_scan_rows = []
         self.runner_fragment_sort_column = "rank"
         self.runner_fragment_sort_reverse = False
+        self._init_proxy_library()
 
         self._build_ui()
         self._load_configs()
@@ -89,9 +104,11 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, CustomRangeMixin, RunnerMixin, Tab
         self.notebook.grid(row=0, column=0, sticky="nsew")
 
         scanner_tab = ttk.Frame(self.notebook)
+        self.proxy_library_tab = ttk.Frame(self.notebook)
         self.runner_tab = ttk.Frame(self.notebook)
         self.about_tab = ttk.Frame(self.notebook)
         self.notebook.add(scanner_tab, text="IP Scanner")
+        self.notebook.add(self.proxy_library_tab, text="Proxy Library")
         self.notebook.add(self.runner_tab, text="Xray Runner")
         self.notebook.add(self.about_tab, text="About")
 
@@ -271,9 +288,9 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, CustomRangeMixin, RunnerMixin, Tab
         for index in range(6):
             speed_fragment_box.columnconfigure(index, weight=1 if index % 2 else 0)
         self.speed_fragment_enabled_var = tk.BooleanVar(value=DEFAULT_FRAGMENT_ENABLED)
-        self.speed_fragment_packets_var = tk.StringVar(value="1-3")
-        self.speed_fragment_interval_var = tk.StringVar(value="1-1")
-        self.speed_fragment_length_var = tk.StringVar(value="1-7")
+        self.speed_fragment_packets_var = tk.StringVar(value=DEFAULT_FRAGMENT_PACKETS)
+        self.speed_fragment_interval_var = tk.StringVar(value=DEFAULT_FRAGMENT_INTERVAL)
+        self.speed_fragment_length_var = tk.StringVar(value=DEFAULT_FRAGMENT_LENGTH)
         self.speed_fragment_enabled_check = ttk.Checkbutton(
             speed_fragment_box,
             text="Enable fragmentation",
@@ -391,6 +408,7 @@ class ProxyTesterGui(AboutMixin, ConfigMixin, CustomRangeMixin, RunnerMixin, Tab
         ttk.Label(right, text="Activity Log").grid(row=2, column=0, sticky="w", pady=(12, 4))
         self.log = tk.Text(right, height=12, wrap="word")
         self.log.grid(row=3, column=0, sticky="nsew")
+        self._build_proxy_library_tab(self.proxy_library_tab)
         self._build_runner_tab(self.runner_tab)
         self._build_about_tab(self.about_tab)
 

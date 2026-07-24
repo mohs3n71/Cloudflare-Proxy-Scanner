@@ -83,19 +83,12 @@ def free_port():
 def make_xray_config(ip, inbound_port, profile, fragment=None):
     outbound = make_outbound(ip, profile)
     outbound["tag"] = "proxy"
-    outbound["streamSettings"] = make_stream_settings(profile)
-    route_tag = "proxy"
+    stream_settings = make_stream_settings(profile, dialer_proxy="fragment" if fragment else "")
+    if stream_settings:
+        outbound["streamSettings"] = stream_settings
     outbounds = [outbound]
     if fragment:
-        route_tag = "fragment"
-        outbounds.append(
-            {
-                "tag": "fragment",
-                "protocol": "freedom",
-                "settings": {"fragment": fragment},
-                "proxySettings": {"tag": "proxy"},
-            }
-        )
+        outbounds.append(make_fragment_outbound(fragment))
     config = {
         "log": {"loglevel": "warning"},
         "inbounds": [
@@ -115,7 +108,7 @@ def make_xray_config(ip, inbound_port, profile, fragment=None):
                 {
                     "type": "field",
                     "inboundTag": ["tester"],
-                    "outboundTag": route_tag,
+                    "outboundTag": "proxy",
                 }
             ]
         }
@@ -125,19 +118,12 @@ def make_xray_config(ip, inbound_port, profile, fragment=None):
 def make_xray_runner_config(ip, inbound_port, listen, profile, fragment):
     proxy = make_outbound(ip, profile)
     proxy["tag"] = "proxy"
-    proxy["streamSettings"] = make_stream_settings(profile)
-    route_tag = "proxy"
+    stream_settings = make_stream_settings(profile, dialer_proxy="fragment" if fragment else "")
+    if stream_settings:
+        proxy["streamSettings"] = stream_settings
     outbounds = [proxy]
     if fragment:
-        route_tag = "fragment"
-        outbounds.append(
-            {
-                "tag": "fragment",
-                "protocol": "freedom",
-                "settings": {"fragment": fragment},
-                "proxySettings": {"tag": "proxy"},
-            }
-        )
+        outbounds.append(make_fragment_outbound(fragment))
     return {
         "log": {"loglevel": "warning"},
         "inbounds": [
@@ -155,7 +141,7 @@ def make_xray_runner_config(ip, inbound_port, listen, profile, fragment):
                 {
                     "type": "field",
                     "inboundTag": ["runner"],
-                    "outboundTag": route_tag,
+                    "outboundTag": "proxy",
                 }
             ]
         },
@@ -175,6 +161,7 @@ def make_outbound(ip, profile):
                             {
                                 "id": profile.uuid,
                                 "encryption": profile.encryption,
+                                **({"flow": profile.flow} if profile.flow else {}),
                             }
                         ],
                     }
@@ -213,20 +200,54 @@ def make_outbound(ip, profile):
                 ]
             },
         }
+    if profile.protocol == "shadowsocks":
+        return {
+            "protocol": "shadowsocks",
+            "settings": {
+                "servers": [
+                    {
+                        "address": ip,
+                        "port": profile.port,
+                        "method": profile.shadowsocks_method,
+                        "password": profile.password,
+                    }
+                ]
+            },
+        }
     raise ValueError(f"Unsupported protocol: {profile.protocol}")
 
 
-def make_stream_settings(profile):
+def make_fragment_outbound(fragment):
+    return {
+        "tag": "fragment",
+        "protocol": "freedom",
+        "settings": {"fragment": fragment},
+    }
+
+
+def make_stream_settings(profile, dialer_proxy=""):
+    if profile.protocol == "shadowsocks":
+        return {"sockopt": {"dialerProxy": dialer_proxy}} if dialer_proxy else {}
+
     settings = {
         "network": profile.network,
         "security": profile.security,
-        "tlsSettings": {
+    }
+    if profile.security == "reality":
+        settings["realitySettings"] = {
+            "serverName": profile.sni,
+            "fingerprint": profile.fingerprint,
+            "publicKey": profile.reality_public_key,
+            "shortId": profile.reality_short_id,
+            "spiderX": profile.reality_spider_x,
+        }
+    elif profile.security == "tls":
+        settings["tlsSettings"] = {
             "serverName": profile.sni,
             "fingerprint": profile.fingerprint,
             "allowInsecure": profile.allow_insecure,
             "alpn": tls_alpn_for_xray(profile),
-        },
-    }
+        }
     if profile.network == "xhttp":
         xhttp_settings = {
             "path": profile.ws_path,
@@ -238,11 +259,23 @@ def make_stream_settings(profile):
         if profile.xhttp_extra:
             xhttp_settings["extra"] = profile.xhttp_extra
         settings["xhttpSettings"] = xhttp_settings
-    else:
+    elif profile.network == "ws":
         settings["wsSettings"] = {
             "path": profile.ws_path,
             "headers": {"Host": profile.ws_host},
         }
+    elif profile.network == "grpc":
+        settings["grpcSettings"] = {
+            "serviceName": profile.grpc_service_name,
+            "multiMode": False,
+            **({"authority": profile.grpc_authority} if profile.grpc_authority else {}),
+        }
+    elif profile.network == "tcp":
+        settings["tcpSettings"] = {
+            "header": {"type": profile.header_type or "none"},
+        }
+    if dialer_proxy:
+        settings["sockopt"] = {"dialerProxy": dialer_proxy}
     return settings
 
 

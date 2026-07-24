@@ -30,7 +30,10 @@ def ask_int(prompt, minimum, maximum, allow_back=False):
 def ask_config():
     files = config_files()
     if not files:
-        raise RuntimeError(f"No config files found in {CONFIG_DIR}. Add a text file containing one vless://, vmess://, or trojan:// config.")
+        raise RuntimeError(
+            f"No config files found in {CONFIG_DIR}. Add a text file containing "
+            "one vless://, vmess://, trojan://, or ss:// config."
+        )
 
     print(colors.title("\nProxy config files:"))
     for index, path in enumerate(files, 1):

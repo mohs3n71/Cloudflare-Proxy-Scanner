@@ -348,6 +348,7 @@ class GuiTests(unittest.TestCase):
         app = object.__new__(gui.ProxyTesterGui)
 
         self.assertTrue(app._contains_supported_config("# primary\nvmess://encoded"))
+        self.assertTrue(app._contains_supported_config("ss://encoded@example.com:8388"))
         self.assertFalse(app._contains_supported_config("https://example.com"))
 
     def test_next_available_config_filename_adds_incrementing_suffix(self):

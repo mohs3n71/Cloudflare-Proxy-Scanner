@@ -9,6 +9,7 @@ from proxy_tester.proxy_config import (
     first_query_value,
     make_proxy_url,
     parse_proxy_config,
+    parse_proxy_url,
 )
 from tests.helpers import DEFAULT_VLESS_URL, sample_profile, temp_text_file
 
@@ -77,6 +78,21 @@ class VlessTests(unittest.TestCase):
         self.assertEqual(profile.ws_path, "/ws")
         self.assertEqual(profile.vmess_security, "auto")
 
+    def test_parse_vmess_preserves_disabled_transport_security(self):
+        payload = {
+            "add": "direct.example",
+            "port": "80",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "net": "tcp",
+            "tls": "",
+        }
+
+        profile = parse_proxy_url(f"vmess://{encode_base64(json.dumps(payload))}")
+
+        self.assertEqual(profile.address, "direct.example")
+        self.assertEqual(profile.network, "tcp")
+        self.assertEqual(profile.security, "none")
+
     def test_parse_trojan_config_reads_profile(self):
         url = "trojan://secret@example.com:443?security=tls&type=ws&host=example.com&path=%2Ftrojan&sni=example.com"
 
@@ -103,11 +119,58 @@ class VlessTests(unittest.TestCase):
         self.assertEqual(profile.encryption, "none")
 
     def test_parse_proxy_config_rejects_unsupported_network(self):
-        url = "vless://uuid@example.com:443?type=tcp"
+        url = "vless://uuid@example.com:443?type=udp"
 
         with temp_text_file(url) as path:
             with self.assertRaises(ValueError):
                 parse_proxy_config(path)
+
+    def test_parse_vless_reality_tcp_retains_original_endpoint(self):
+        profile = parse_proxy_url(
+            "vless://uuid@direct.example:443"
+            "?security=reality&type=tcp&sni=www.example.com&fp=chrome"
+            "&pbk=public-key&sid=abcd&spx=%2F&flow=xtls-rprx-vision#Direct"
+        )
+
+        self.assertEqual(profile.address, "direct.example")
+        self.assertEqual(profile.name, "Direct")
+        self.assertEqual(profile.network, "tcp")
+        self.assertEqual(profile.security, "reality")
+        self.assertEqual(profile.flow, "xtls-rprx-vision")
+        self.assertEqual(profile.reality_public_key, "public-key")
+        self.assertEqual(profile.reality_short_id, "abcd")
+
+    def test_parse_trojan_grpc_reads_service_and_authority(self):
+        profile = parse_proxy_url(
+            "trojan://secret@example.com:443?security=tls&type=grpc"
+            "&serviceName=my-service&authority=cdn.example.com#Trojan-gRPC"
+        )
+
+        self.assertEqual(profile.address, "example.com")
+        self.assertEqual(profile.network, "grpc")
+        self.assertEqual(profile.grpc_service_name, "my-service")
+        self.assertEqual(profile.grpc_authority, "cdn.example.com")
+
+    def test_parse_shadowsocks_supports_sip002_and_legacy_urls(self):
+        credentials = encode_base64("aes-256-gcm:secret")
+        modern = parse_proxy_url(f"ss://{credentials}@server.example:8388#Modern")
+        legacy = parse_proxy_url(
+            f"ss://{encode_base64('chacha20-ietf-poly1305:password@legacy.example:443')}#Legacy"
+        )
+
+        self.assertEqual(modern.protocol, "shadowsocks")
+        self.assertEqual(modern.address, "server.example")
+        self.assertEqual(modern.port, 8388)
+        self.assertEqual(modern.shadowsocks_method, "aes-256-gcm")
+        self.assertEqual(modern.password, "secret")
+        self.assertEqual(legacy.address, "legacy.example")
+        self.assertEqual(legacy.shadowsocks_method, "chacha20-ietf-poly1305")
+
+    def test_parse_shadowsocks_rejects_plugin_urls(self):
+        credentials = encode_base64("aes-256-gcm:secret")
+
+        with self.assertRaisesRegex(ValueError, "plugins are not supported"):
+            parse_proxy_url(f"ss://{credentials}@example.com:8388?plugin=v2ray-plugin")
 
     def test_parse_vless_xhttp_config_reads_transport_settings(self):
         extra = {"xPaddingBytes": "100-1000", "xmux": {"maxConcurrency": 1}}
@@ -257,6 +320,18 @@ class VlessTests(unittest.TestCase):
         self.assertEqual(parsed.scheme, "trojan")
         self.assertEqual(parsed.username, "secret")
         self.assertEqual(parsed.hostname, "104.16.1.1")
+
+    def test_make_shadowsocks_url_round_trips(self):
+        credentials = encode_base64("aes-128-gcm:secret")
+        profile = parse_proxy_url(f"ss://{credentials}@example.com:8388#Original")
+
+        generated = make_proxy_url("1.1.1.1", "New name", profile)
+        reparsed = parse_proxy_url(generated)
+
+        self.assertEqual(reparsed.address, "1.1.1.1")
+        self.assertEqual(reparsed.name, "New name")
+        self.assertEqual(reparsed.shadowsocks_method, "aes-128-gcm")
+        self.assertEqual(reparsed.password, "secret")
 
 
 if __name__ == "__main__":

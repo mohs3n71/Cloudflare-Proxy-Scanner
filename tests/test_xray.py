@@ -81,7 +81,9 @@ class XrayTests(unittest.TestCase):
         self.assertEqual(config["inbounds"][0]["tag"], "tester")
         self.assertEqual(config["outbounds"][0]["tag"], "proxy")
         self.assertEqual(config["outbounds"][1]["settings"]["fragment"], fragment)
-        self.assertEqual(config["routing"]["rules"][0]["outboundTag"], "fragment")
+        self.assertEqual(config["outbounds"][0]["streamSettings"]["sockopt"]["dialerProxy"], "fragment")
+        self.assertNotIn("proxySettings", config["outbounds"][1])
+        self.assertEqual(config["routing"]["rules"][0]["outboundTag"], "proxy")
 
     def test_make_xray_runner_config_uses_socks_inbound_and_fragment_chain(self):
         fragment = {"packets": "1-3", "interval": "1-1", "length": "1-7"}
@@ -102,8 +104,9 @@ class XrayTests(unittest.TestCase):
         self.assertEqual(config["outbounds"][0]["settings"]["vnext"][0]["address"], "104.16.1.1")
         self.assertEqual(config["outbounds"][1]["protocol"], "freedom")
         self.assertEqual(config["outbounds"][1]["settings"]["fragment"], fragment)
-        self.assertEqual(config["outbounds"][1]["proxySettings"]["tag"], "proxy")
-        self.assertEqual(config["routing"]["rules"][0]["outboundTag"], "fragment")
+        self.assertEqual(config["outbounds"][0]["streamSettings"]["sockopt"]["dialerProxy"], "fragment")
+        self.assertNotIn("proxySettings", config["outbounds"][1])
+        self.assertEqual(config["routing"]["rules"][0]["outboundTag"], "proxy")
 
     def test_make_xray_runner_config_routes_directly_when_fragment_is_disabled(self):
         config = xray.make_xray_runner_config(
@@ -116,7 +119,18 @@ class XrayTests(unittest.TestCase):
 
         self.assertEqual(len(config["outbounds"]), 1)
         self.assertEqual(config["outbounds"][0]["tag"], "proxy")
+        self.assertNotIn("sockopt", config["outbounds"][0]["streamSettings"])
         self.assertEqual(config["routing"]["rules"][0]["outboundTag"], "proxy")
+
+    def test_make_fragment_outbound_has_no_reverse_proxy_chain(self):
+        fragment = {"packets": "tlshello", "interval": "1-2", "length": "5-10"}
+
+        outbound = xray.make_fragment_outbound(fragment)
+
+        self.assertEqual(outbound["tag"], "fragment")
+        self.assertEqual(outbound["protocol"], "freedom")
+        self.assertEqual(outbound["settings"]["fragment"], fragment)
+        self.assertNotIn("proxySettings", outbound)
 
     def test_make_xray_config_supports_vmess(self):
         profile = ProxyProfile(
@@ -172,6 +186,63 @@ class XrayTests(unittest.TestCase):
         self.assertEqual(outbound["protocol"], "trojan")
         self.assertEqual(outbound["settings"]["servers"][0]["password"], "secret")
 
+    def test_make_xray_config_supports_shadowsocks_without_transport_settings(self):
+        profile = ProxyProfile(
+            **{
+                **sample_profile().__dict__,
+                "protocol": "shadowsocks",
+                "password": "secret",
+                "port": 8388,
+                "security": "none",
+                "network": "tcp",
+                "shadowsocks_method": "aes-256-gcm",
+            }
+        )
+
+        outbound = xray.make_xray_config("1.1.1.1", 18080, profile)["outbounds"][0]
+
+        self.assertEqual(outbound["protocol"], "shadowsocks")
+        self.assertEqual(outbound["settings"]["servers"][0]["method"], "aes-256-gcm")
+        self.assertNotIn("streamSettings", outbound)
+
+    def test_make_stream_settings_supports_reality_tcp(self):
+        profile = ProxyProfile(
+            **{
+                **sample_profile().__dict__,
+                "network": "tcp",
+                "security": "reality",
+                "flow": "xtls-rprx-vision",
+                "reality_public_key": "public-key",
+                "reality_short_id": "abcd",
+                "reality_spider_x": "/",
+            }
+        )
+
+        config = xray.make_xray_config("1.1.1.1", 18080, profile)
+        outbound = config["outbounds"][0]
+
+        self.assertEqual(outbound["settings"]["vnext"][0]["users"][0]["flow"], "xtls-rprx-vision")
+        self.assertEqual(outbound["streamSettings"]["network"], "tcp")
+        self.assertEqual(outbound["streamSettings"]["tcpSettings"]["header"]["type"], "none")
+        self.assertEqual(outbound["streamSettings"]["realitySettings"]["publicKey"], "public-key")
+
+    def test_make_stream_settings_supports_grpc(self):
+        profile = ProxyProfile(
+            **{
+                **sample_profile().__dict__,
+                "network": "grpc",
+                "grpc_service_name": "service",
+                "grpc_authority": "cdn.example.com",
+            }
+        )
+
+        settings = xray.make_stream_settings(profile)
+
+        self.assertEqual(
+            settings["grpcSettings"],
+            {"serviceName": "service", "multiMode": False, "authority": "cdn.example.com"},
+        )
+
     def test_tls_alpn_for_xray_forces_http11_for_websocket(self):
         profile = sample_profile()
 
@@ -204,6 +275,11 @@ class XrayTests(unittest.TestCase):
                 "extra": {"xPaddingBytes": "100-1000"},
             },
         )
+
+    def test_make_stream_settings_can_use_fragment_as_transport_dialer(self):
+        settings = xray.make_stream_settings(sample_profile(), dialer_proxy="fragment")
+
+        self.assertEqual(settings["sockopt"], {"dialerProxy": "fragment"})
 
     def test_mbps_calculation(self):
         self.assertEqual(xray.mbps(1_000_000, 1), 8.0)

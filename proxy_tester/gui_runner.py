@@ -132,6 +132,12 @@ def _normalize_fragment(fragment):
 
 
 class RunnerMixin:
+    def _set_runner_profile(self, profile):
+        self.runner_profile = profile
+        if "runner_profile_var" in self.__dict__:
+            name = profile.name or profile.protocol.upper()
+            self.runner_profile_var.set(name if len(name) <= 64 else name[:61] + "...")
+
     def _custom_fragment_text_to_save(self, value):
         value = value.strip()
         if value == CUSTOM_FRAGMENT_PLACEHOLDER.strip():
@@ -156,6 +162,13 @@ class RunnerMixin:
         self.fragment_interval_var = tk.StringVar(value=settings.fragment_interval)
         self.fragment_length_var = tk.StringVar(value=settings.fragment_length)
         self.runner_status_var = tk.StringVar(value="Stopped")
+        self.runner_profile_var = tk.StringVar(
+            value=(
+                self.runner_profile.name[:64]
+                if self.runner_profile is not None
+                else "No configuration selected"
+            )
+        )
 
         self.runner_download_result_var = tk.StringVar(value="Not tested")
         self.runner_upload_result_var = tk.StringVar(value="Not tested")
@@ -196,6 +209,14 @@ class RunnerMixin:
             width=28,
         )
         self.runner_system_proxy_combo.grid(row=2, column=1, sticky="w", pady=(10, 0))
+        ttk.Label(runner_box, text="Configuration").grid(row=2, column=2, sticky="w", pady=(10, 0))
+        ttk.Label(runner_box, textvariable=self.runner_profile_var).grid(
+            row=2,
+            column=3,
+            sticky="w",
+            padx=(8, 0),
+            pady=(10, 0),
+        )
 
         fragment_box = ttk.LabelFrame(runner_box, text="Fragmentation", padding=10)
         fragment_box.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(12, 0))
@@ -413,7 +434,8 @@ class RunnerMixin:
             self._sync_fragment_state()
 
     def _set_runner_speed_state(self, running):
-        state = "disabled" if running or self.profile is None else "normal"
+        profile = self.__dict__.get("runner_profile") or self.__dict__.get("profile")
+        state = "disabled" if running or profile is None else "normal"
         if "runner_download_button" in self.__dict__:
             self.runner_download_button.configure(state=state)
         if "runner_upload_button" in self.__dict__:
@@ -481,7 +503,7 @@ class RunnerMixin:
         return int(size_mb * 1024 * 1024), timeout_ms
 
     def _current_xray_runner_config(self, ip=None):
-        profile = self._selected_profile()
+        profile = self._selected_runner_profile()
         if profile is None:
             return None
         if ip:
@@ -596,7 +618,7 @@ class RunnerMixin:
         self.runner_system_proxy_applied = False
 
     def start_runner_speed_test(self, speed_mode):
-        profile = self._selected_profile()
+        profile = self._selected_runner_profile()
         speed_settings = self._runner_speed_settings()
         if profile is None or speed_settings is None:
             return
@@ -640,7 +662,7 @@ class RunnerMixin:
         self.events.put(("runner_speed_result", speed_mode, result))
 
     def start_runner_fragment_scan(self):
-        profile = self._selected_profile()
+        profile = self._selected_runner_profile()
         speed_settings = self._runner_speed_settings()
         if profile is None or speed_settings is None:
             return
@@ -815,7 +837,11 @@ class RunnerMixin:
         self._cleanup_runner_temp_dir()
         self._clear_runner_system_proxy_if_needed()
         if "runner_start_button" in self.__dict__:
-            self.runner_start_button.configure(state="normal" if self.profile is not None else "disabled")
+            self.runner_start_button.configure(
+                state="normal"
+                if (self.__dict__.get("runner_profile") or self.__dict__.get("profile")) is not None
+                else "disabled"
+            )
             self.runner_stop_button.configure(state="disabled")
             self._set_runner_config_state(False)
             self._set_runner_speed_state(False)
@@ -829,7 +855,11 @@ class RunnerMixin:
             return
         self.runner_process = None
         self._cleanup_runner_temp_dir()
-        self.runner_start_button.configure(state="normal" if self.profile is not None else "disabled")
+        self.runner_start_button.configure(
+            state="normal"
+            if (self.__dict__.get("runner_profile") or self.__dict__.get("profile")) is not None
+            else "disabled"
+        )
         self.runner_stop_button.configure(state="disabled")
         self._set_runner_config_state(False)
         self._set_runner_speed_state(False)
@@ -951,7 +981,7 @@ class RunnerMixin:
         return fragment.get(column, "")
 
     def apply_saved_best_fragment(self):
-        profile = self._selected_profile()
+        profile = self._selected_runner_profile()
         if profile is None:
             return
         ip = self.runner_ip_var.get().strip()
@@ -1084,6 +1114,7 @@ class RunnerMixin:
         except OSError as exc:
             self._append_runner_log(f"Could not save runner settings: {exc}")
         self.stop_current()
+        self.stop_proxy_library_tests()
         self.stop_xray_runner()
         self.destroy()
 

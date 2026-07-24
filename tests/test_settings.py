@@ -4,8 +4,11 @@ import tempfile
 import unittest
 
 from proxy_tester.settings import (
-    DEFAULT_FRAGMENT_ENABLED,
     DEFAULT_APPEARANCE_MODE,
+    DEFAULT_FRAGMENT_ENABLED,
+    DEFAULT_FRAGMENT_INTERVAL,
+    DEFAULT_FRAGMENT_LENGTH,
+    DEFAULT_FRAGMENT_PACKETS,
     RunnerSettings,
     SYSTEM_PROXY_SET,
     load_custom_range_values,
@@ -41,6 +44,16 @@ class RunnerSettingsTests(unittest.TestCase):
     def test_fragmentation_is_disabled_by_default(self):
         self.assertFalse(DEFAULT_FRAGMENT_ENABLED)
         self.assertFalse(RunnerSettings().fragment_enabled)
+
+    def test_fragment_defaults_target_real_clienthello(self):
+        settings = RunnerSettings()
+
+        self.assertEqual(DEFAULT_FRAGMENT_PACKETS, "tlshello")
+        self.assertEqual(DEFAULT_FRAGMENT_INTERVAL, "1-2")
+        self.assertEqual(DEFAULT_FRAGMENT_LENGTH, "5-10")
+        self.assertEqual(settings.fragment_packets, DEFAULT_FRAGMENT_PACKETS)
+        self.assertEqual(settings.fragment_interval, DEFAULT_FRAGMENT_INTERVAL)
+        self.assertEqual(settings.fragment_length, DEFAULT_FRAGMENT_LENGTH)
 
     def test_runner_settings_round_trip(self):
         expected = RunnerSettings(

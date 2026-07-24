@@ -51,6 +51,7 @@ class ConfigMixin:
             return
         try:
             self.profile = parse_proxy_config(self.config_paths_by_name[name])
+            self._set_runner_profile(self.profile)
             self._log(f"Selected configuration: {name}")
             self.status_var.set(f"Configuration: {name}")
         except Exception as exc:
@@ -74,10 +75,19 @@ class ConfigMixin:
         for button in (self.start_button, self.speed_button, self.proxy_config_button):
             button.configure(state=state)
         if "runner_start_button" in self.__dict__:
-            runner_state = state if not self._runner_is_active() else "disabled"
+            runner_state = (
+                "normal"
+                if (self.__dict__.get("runner_profile") or self.profile) is not None
+                and not self._runner_is_active()
+                else "disabled"
+            )
             self.runner_start_button.configure(state=runner_state)
             if "runner_export_button" in self.__dict__:
-                self.runner_export_button.configure(state=state)
+                self.runner_export_button.configure(
+                    state="normal"
+                    if (self.__dict__.get("runner_profile") or self.profile) is not None
+                    else "disabled"
+                )
             self._set_runner_speed_state(False)
 
     def open_add_config_modal(self):
@@ -158,7 +168,7 @@ class ConfigMixin:
 
     def _contains_supported_config(self, value):
         return any(
-            line.strip().startswith(("vless://", "vmess://", "trojan://"))
+            line.strip().startswith(("vless://", "vmess://", "trojan://", "ss://"))
             for line in value.splitlines()
         )
 
@@ -341,6 +351,21 @@ class ConfigMixin:
             messagebox.showwarning("Configuration Required", "Select a valid proxy configuration first.")
             return None
         return self.profile
+
+    def _selected_runner_profile(self):
+        profile = self.__dict__.get("runner_profile")
+        legacy_selector = self.__dict__.get("_selected_profile")
+        if profile is None and callable(legacy_selector):
+            profile = legacy_selector()
+        if profile is None:
+            profile = self.__dict__.get("profile")
+        if profile is None:
+            messagebox.showwarning(
+                "Configuration Required",
+                "Select a scanner configuration or send one from Proxy Library first.",
+            )
+            return None
+        return profile
 
     def create_proxy_configs(self):
         profile = self._selected_profile()

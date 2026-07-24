@@ -18,5 +18,6 @@ BIN_DIR = os.path.join(RESOURCE_DIR, "bin")
 CONFIG_DIR = os.path.join(BASE_DIR, "configs")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
+PROXY_LIBRARY_PATH = os.path.join(CONFIG_DIR, "proxy-library.json")
 XRAY_BINARY = "xray.exe" if os.name == "nt" else "xray"
 XRAY_EXE = os.path.join(BIN_DIR, "xray", XRAY_BINARY)
