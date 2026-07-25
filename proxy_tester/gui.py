@@ -108,7 +108,7 @@ class ProxyTesterGui(
         self.runner_tab = ttk.Frame(self.notebook)
         self.about_tab = ttk.Frame(self.notebook)
         self.notebook.add(scanner_tab, text="IP Scanner")
-        self.notebook.add(self.proxy_library_tab, text="Proxy Library")
+        self.notebook.add(self.proxy_library_tab, text="Non-Cloudflare Tests")
         self.notebook.add(self.runner_tab, text="Xray Runner")
         self.notebook.add(self.about_tab, text="About")
 

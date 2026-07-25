@@ -11,6 +11,12 @@ from .proxy_library import (
     save_proxy_library,
     update_library_result,
 )
+from .settings import (
+    DEFAULT_FRAGMENT_ENABLED,
+    DEFAULT_FRAGMENT_INTERVAL,
+    DEFAULT_FRAGMENT_LENGTH,
+    DEFAULT_FRAGMENT_PACKETS,
+)
 from .storage import append_log_line, create_log_file
 from .xray import DEFAULT_SPEED_TEST_BYTES, DEFAULT_SPEED_TEST_TIMEOUT_MS, test_ip
 
@@ -45,7 +51,7 @@ class ProxyLibraryMixin:
 
     def _build_proxy_library_tab(self, parent):
         parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(3, weight=1)
+        parent.rowconfigure(4, weight=1)
 
         import_box = ttk.LabelFrame(parent, text="Import Proxy Configurations", padding=10)
         import_box.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 8))
@@ -124,8 +130,44 @@ class ProxyLibraryMixin:
         )
         self.proxy_library_stop_button.pack(side="right")
 
+        fragment_box = ttk.LabelFrame(parent, text="Test Fragmentation", padding=10)
+        fragment_box.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+        self.proxy_library_fragment_enabled_var = tk.BooleanVar(value=DEFAULT_FRAGMENT_ENABLED)
+        self.proxy_library_fragment_packets_var = tk.StringVar(value=DEFAULT_FRAGMENT_PACKETS)
+        self.proxy_library_fragment_interval_var = tk.StringVar(value=DEFAULT_FRAGMENT_INTERVAL)
+        self.proxy_library_fragment_length_var = tk.StringVar(value=DEFAULT_FRAGMENT_LENGTH)
+        self.proxy_library_fragment_enabled_check = ttk.Checkbutton(
+            fragment_box,
+            text="Enable fragmentation",
+            variable=self.proxy_library_fragment_enabled_var,
+            command=self._sync_proxy_library_fragment_state,
+        )
+        self.proxy_library_fragment_enabled_check.pack(side="left")
+        ttk.Label(fragment_box, text="Packets").pack(side="left", padx=(20, 6))
+        self.proxy_library_fragment_packets_entry = ttk.Entry(
+            fragment_box,
+            textvariable=self.proxy_library_fragment_packets_var,
+            width=12,
+        )
+        self.proxy_library_fragment_packets_entry.pack(side="left")
+        ttk.Label(fragment_box, text="Interval (ms)").pack(side="left", padx=(18, 6))
+        self.proxy_library_fragment_interval_entry = ttk.Entry(
+            fragment_box,
+            textvariable=self.proxy_library_fragment_interval_var,
+            width=12,
+        )
+        self.proxy_library_fragment_interval_entry.pack(side="left")
+        ttk.Label(fragment_box, text="Length (bytes)").pack(side="left", padx=(18, 6))
+        self.proxy_library_fragment_length_entry = ttk.Entry(
+            fragment_box,
+            textvariable=self.proxy_library_fragment_length_var,
+            width=12,
+        )
+        self.proxy_library_fragment_length_entry.pack(side="left")
+        self._sync_proxy_library_fragment_state()
+
         status = ttk.Frame(parent)
-        status.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+        status.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 8))
         status.columnconfigure(0, weight=1)
         self.proxy_library_status_var = tk.StringVar(
             value=self.proxy_library_load_error or f"{len(self.proxy_library_entries)} saved configurations"
@@ -135,7 +177,7 @@ class ProxyLibraryMixin:
         self.proxy_library_progress.grid(row=1, column=0, sticky="ew", pady=(5, 0))
 
         table_frame = ttk.Frame(parent)
-        table_frame.grid(row=3, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        table_frame.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 12))
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(0, weight=1)
         columns = tuple(LIBRARY_COLUMN_LABELS)
@@ -259,12 +301,38 @@ class ProxyLibraryMixin:
             return None
         return int(size_mb * 1024 * 1024), timeout_ms
 
+    def _sync_proxy_library_fragment_state(self):
+        state = "normal" if self.proxy_library_fragment_enabled_var.get() else "disabled"
+        for entry in (
+            self.proxy_library_fragment_packets_entry,
+            self.proxy_library_fragment_interval_entry,
+            self.proxy_library_fragment_length_entry,
+        ):
+            entry.configure(state=state)
+
+    def _proxy_library_fragment_settings(self):
+        if not self.proxy_library_fragment_enabled_var.get():
+            return {}
+        fragment = {
+            "packets": self.proxy_library_fragment_packets_var.get().strip(),
+            "interval": self.proxy_library_fragment_interval_var.get().strip(),
+            "length": self.proxy_library_fragment_length_var.get().strip(),
+        }
+        if any(not value for value in fragment.values()):
+            messagebox.showerror(
+                "Fragmentation Settings",
+                "Packets, interval, and length are required when fragmentation is enabled.",
+            )
+            return None
+        return fragment
+
     def start_proxy_library_test(self, speed_mode):
         if self.proxy_library_worker and self.proxy_library_worker.is_alive():
             return
         settings = self._proxy_library_test_settings()
+        fragment = self._proxy_library_fragment_settings()
         entries = self._selected_proxy_library_entries(use_all_when_empty=True)
-        if settings is None:
+        if settings is None or fragment is None:
             return
         if not entries:
             messagebox.showwarning("No Configurations", "Add at least one proxy configuration first.")
@@ -274,18 +342,19 @@ class ProxyLibraryMixin:
         self.proxy_library_log_path = create_log_file("proxy-library-speed-test")
         self._proxy_library_log(
             f"Starting {speed_mode} test: configurations={len(entries)}, "
-            f"size_bytes={settings[0]}, timeout_ms={settings[1]}"
+            f"size_bytes={settings[0]}, timeout_ms={settings[1]}, "
+            f"fragment={fragment or 'disabled'}"
         )
         self._set_proxy_library_running(True)
         self.proxy_library_status_var.set(f"Testing 0/{len(entries)} configurations...")
         self.proxy_library_worker = threading.Thread(
             target=self._proxy_library_test_worker,
-            args=(entries, speed_mode, settings[0], settings[1]),
+            args=(entries, speed_mode, settings[0], settings[1], fragment),
             daemon=True,
         )
         self.proxy_library_worker.start()
 
-    def _proxy_library_test_worker(self, entries, speed_mode, speed_test_bytes, timeout_ms):
+    def _proxy_library_test_worker(self, entries, speed_mode, speed_test_bytes, timeout_ms, fragment):
         total = len(entries)
         completed = 0
         for entry in entries:
@@ -304,6 +373,7 @@ class ProxyLibraryMixin:
                     timeout_ms=timeout_ms,
                     speed_test_bytes=speed_test_bytes,
                     speed_timeout_ms=timeout_ms,
+                    fragment=fragment,
                     process_started=self._track_process,
                     process_finished=self._untrack_process,
                 )
@@ -341,8 +411,17 @@ class ProxyLibraryMixin:
             "proxy_library_both_button",
             "proxy_library_size_entry",
             "proxy_library_timeout_entry",
+            "proxy_library_fragment_enabled_check",
         ):
             getattr(self, name).configure(state=state)
+        for name in (
+            "proxy_library_fragment_packets_entry",
+            "proxy_library_fragment_interval_entry",
+            "proxy_library_fragment_length_entry",
+        ):
+            getattr(self, name).configure(state="disabled" if running else "normal")
+        if not running:
+            self._sync_proxy_library_fragment_state()
         self.proxy_library_stop_button.configure(state="normal" if running else "disabled")
 
     def handle_proxy_library_event(self, event):

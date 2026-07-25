@@ -106,10 +106,18 @@ class ProxyLibraryGuiTests(unittest.TestCase):
             "proxy_library_stop_button",
             "proxy_library_size_entry",
             "proxy_library_timeout_entry",
+            "proxy_library_fragment_enabled_check",
+            "proxy_library_fragment_packets_entry",
+            "proxy_library_fragment_interval_entry",
+            "proxy_library_fragment_length_entry",
         ):
             setattr(app, name, FakeButton())
         app.proxy_library_size_var = FakeVar("1")
         app.proxy_library_timeout_var = FakeVar("7000")
+        app.proxy_library_fragment_enabled_var = FakeVar(False)
+        app.proxy_library_fragment_packets_var = FakeVar("tlshello")
+        app.proxy_library_fragment_interval_var = FakeVar("1-2")
+        app.proxy_library_fragment_length_var = FakeVar("5-10")
         return app
 
     def test_import_configs_persists_valid_entries(self):
@@ -151,6 +159,29 @@ class ProxyLibraryGuiTests(unittest.TestCase):
             self.assertIsNone(app._proxy_library_test_settings())
         showerror.assert_called_once()
 
+    def test_fragment_settings_are_disabled_by_default_and_validate_enabled_values(self):
+        app = self.make_app()
+
+        self.assertEqual(app._proxy_library_fragment_settings(), {})
+        app.proxy_library_fragment_enabled_var.set(True)
+        self.assertEqual(
+            app._proxy_library_fragment_settings(),
+            {"packets": "tlshello", "interval": "1-2", "length": "5-10"},
+        )
+        app.proxy_library_fragment_interval_var.set("")
+        with patch.object(gui_library.messagebox, "showerror") as showerror:
+            self.assertIsNone(app._proxy_library_fragment_settings())
+        showerror.assert_called_once()
+
+    def test_fragment_fields_follow_checkbox_state(self):
+        app = self.make_app()
+
+        app._sync_proxy_library_fragment_state()
+        self.assertEqual(app.proxy_library_fragment_packets_entry.state, "disabled")
+        app.proxy_library_fragment_enabled_var.set(True)
+        app._sync_proxy_library_fragment_state()
+        self.assertEqual(app.proxy_library_fragment_packets_entry.state, "normal")
+
     def test_worker_tests_original_servers_sequentially(self):
         app = self.make_app()
         results = [
@@ -159,11 +190,21 @@ class ProxyLibraryGuiTests(unittest.TestCase):
         ]
 
         with patch.object(gui_library, "test_ip", side_effect=results) as test:
-            app._proxy_library_test_worker(app.proxy_library_entries, "download", 1024, 7000)
+            app._proxy_library_test_worker(
+                app.proxy_library_entries,
+                "download",
+                1024,
+                7000,
+                {"packets": "tlshello", "interval": "1-2", "length": "5-10"},
+            )
 
         self.assertEqual(test.call_count, 2)
         self.assertEqual(test.call_args_list[0].args[0], "example.com")
         self.assertEqual(test.call_args_list[1].args[0], "trojan.example")
+        self.assertEqual(
+            test.call_args_list[0].kwargs["fragment"],
+            {"packets": "tlshello", "interval": "1-2", "length": "5-10"},
+        )
         events = list(app.events.queue)
         self.assertEqual(events[-1][:3], ("proxy_library_done", 2, 2))
 
@@ -180,7 +221,9 @@ class ProxyLibraryGuiTests(unittest.TestCase):
         self.assertTrue(app.proxy_library_worker.started)
         self.assertEqual([entry["id"] for entry in app.proxy_library_worker.args[0]], [selected_id])
         self.assertEqual(app.proxy_library_worker.args[1], "upload")
+        self.assertEqual(app.proxy_library_worker.args[4], {})
         self.assertEqual(app.proxy_library_stop_button.state, "normal")
+        self.assertEqual(app.proxy_library_fragment_enabled_check.state, "disabled")
 
     def test_start_warns_when_library_is_empty(self):
         app = self.make_app()

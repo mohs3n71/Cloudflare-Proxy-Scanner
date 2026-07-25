@@ -34,7 +34,7 @@ The project also provides a CLI, Windows/Linux/macOS launch scripts, multi-platf
 - Can publish standalone Windows, Linux, and macOS releases for x64, x86, and ARM64 targets where supported.
 - Includes an About tab with the application version, bundled Xray version, and project GitHub link.
 - Includes a persistent mild dark mode that can be enabled from the About tab.
-- Includes a persistent Proxy Library for bulk-importing direct or Cloudflare proxy links, testing them sequentially, and running a selected profile with Xray.
+- Includes a persistent Non-Cloudflare Tests tab for bulk-importing direct proxy links, testing them sequentially, and running a selected profile with Xray.
 
 ### Supported Config Types
 
@@ -46,7 +46,7 @@ The IP scanner supports WebSocket (`type=ws` / `net=ws`) and XHTTP (`type=xhttp`
 
 The older `splithttp` transport name is accepted as an alias for XHTTP. For XHTTP profiles, the app preserves `host`, `path`, `mode`, and the optional raw JSON `extra` object when scanning, running Xray, generating result configurations, and creating QR codes.
 
-The Proxy Library and Xray Runner additionally support direct endpoints using TCP, gRPC, TLS, and Reality, plus native `ss://` Shadowsocks links. Shadowsocks links that require SIP003 plugins are rejected because Xray core does not run those external plugins.
+The Non-Cloudflare Tests tab and Xray Runner additionally support direct endpoints using TCP, gRPC, TLS, and Reality, plus native `ss://` Shadowsocks links. Shadowsocks links that require SIP003 plugins are rejected because Xray core does not run those external plugins.
 
 Put config text files in:
 
@@ -168,13 +168,16 @@ The Windows GUI launcher uses `pythonw.exe`, so it opens the GUI without keeping
 - Run speed tests on the whole selected output.
 - Create replacement configs from the selected output.
 
-**Proxy Library**
+**Non-Cloudflare Tests**
 
 - Paste multiple `vless://`, `vmess://`, `trojan://`, or `ss://` links at once. Duplicate links are ignored and invalid links are reported.
 - Configurations and their latest latency, download, upload, status, and error state are saved in `configs/proxy-library.json`.
 - Each run writes a diagnostic `proxy-library-speed-test-*.log` file in `logs`.
 - Select one or more rows to test them, or leave the selection empty to test the complete library.
 - Download, upload, and combined tests run sequentially to avoid competing for bandwidth.
+- Fragmentation is disabled by default. Enable it to apply custom packets, interval, and length values to every selected proxy test through Xray's `dialerProxy`.
+- Fragment defaults are `Packets: tlshello`, `Interval: 1-2`, and `Length: 5-10`; fragment controls are locked while testing.
+- `tlshello` targets TLS-based profiles. For plain non-TLS Shadowsocks links, use a numeric packets range such as `1-3` when fragmentation is needed.
 - The active row is highlighted and the table remains sortable by every column while testing.
 - `Stop` terminates the active temporary Xray process immediately.
 - Double-click a row, use the button, or choose `Run with Xray` from the context menu to start that original endpoint in Xray Runner.
@@ -573,7 +576,7 @@ configs/your-config.config
 
 نام قدیمی `splithttp` نیز به‌عنوان نام جایگزین XHTTP پذیرفته می‌شود. در کانفیگ XHTTP، برنامه مقادیر `host`، `path`، `mode` و شیء JSON اختیاری `extra` را هنگام اسکن، اجرای Xray، ساخت کانفیگ خروجی و QR Code حفظ می‌کند.
 
-تب `Proxy Library` و بخش Xray Runner علاوه بر این موارد، آدرس‌های مستقیم با انتقال TCP یا gRPC و امنیت TLS یا Reality را نیز پشتیبانی می‌کنند. لینک‌های استاندارد `ss://` برای Shadowsocks هم قابل استفاده هستند؛ کانفیگ‌های Shadowsocks وابسته به پلاگین‌های خارجی SIP003 پشتیبانی نمی‌شوند، چون Xray Core آن پلاگین‌ها را اجرا نمی‌کند.
+تب `Non-Cloudflare Tests` و بخش Xray Runner علاوه بر این موارد، آدرس‌های مستقیم با انتقال TCP یا gRPC و امنیت TLS یا Reality را نیز پشتیبانی می‌کنند. لینک‌های استاندارد `ss://` برای Shadowsocks هم قابل استفاده هستند؛ کانفیگ‌های Shadowsocks وابسته به پلاگین‌های خارجی SIP003 پشتیبانی نمی‌شوند، چون Xray Core آن پلاگین‌ها را اجرا نمی‌کند.
 
 فایل‌های کانفیگ را داخل این پوشه قرار دهید:
 
@@ -692,13 +695,16 @@ chmod +x run_gui.sh
 - تست سرعت روی کل خروجی انتخاب‌شده.
 - ساخت کانفیگ جدید از خروجی انتخاب‌شده.
 
-**Proxy Library**
+**Non-Cloudflare Tests**
 
 - وارد کردن هم‌زمان چند کانفیگ VLESS، VMess، Trojan یا Shadowsocks؛ کانفیگ‌های تکراری نادیده گرفته می‌شوند و کانفیگ‌های نامعتبر گزارش داده می‌شوند.
 - کانفیگ‌ها و آخرین نتیجه پینگ، دانلود و آپلود در فایل `configs/proxy-library.json` ذخیره می‌شوند.
 - هر بار تست، یک فایل لاگ مستقل با نام `proxy-library-speed-test-*.log` داخل پوشه `logs` می‌سازد.
 - می‌توانید چند ردیف را انتخاب کنید؛ اگر هیچ ردیفی انتخاب نشده باشد، تمام کانفیگ‌های کتابخانه به‌ترتیب تست می‌شوند.
 - تست دانلود، آپلود یا هر دو به‌صورت تک‌به‌تک انجام می‌شود تا تست‌ها پهنای باند یکدیگر را خراب نکنند.
+- فرگمنت به‌صورت پیش‌فرض غیرفعال است. با فعال کردن آن، مقادیر packets، interval و length از طریق `dialerProxy` روی تست تمام کانفیگ‌های انتخاب‌شده اعمال می‌شوند.
+- مقادیر پیش‌فرض فرگمنت `Packets: tlshello`، `Interval: 1-2` و `Length: 5-10` هستند و هنگام تست، کنترل‌های فرگمنت قفل می‌شوند.
+- مقدار `tlshello` مخصوص کانفیگ‌های دارای TLS است. برای Shadowsocks ساده و بدون TLS، در صورت نیاز از مقدار عددی مثل `1-3` برای packets استفاده کنید.
 - ردیف در حال تست هایلایت می‌شود و تمام ستون‌ها هنگام تست نیز قابل مرتب‌سازی هستند.
 - دکمه `Stop` پردازش Xray مربوط به تست فعال را بلافاصله متوقف می‌کند.
 - با دوبار کلیک، دکمه اجرا یا گزینه `Run with Xray` می‌توانید همان کانفیگ و آدرس اصلی را داخل Xray Runner اجرا کنید.

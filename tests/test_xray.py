@@ -205,6 +205,28 @@ class XrayTests(unittest.TestCase):
         self.assertEqual(outbound["settings"]["servers"][0]["method"], "aes-256-gcm")
         self.assertNotIn("streamSettings", outbound)
 
+    def test_make_xray_config_can_fragment_shadowsocks_transport(self):
+        fragment = {"packets": "tlshello", "interval": "1-2", "length": "5-10"}
+        profile = ProxyProfile(
+            **{
+                **sample_profile().__dict__,
+                "protocol": "shadowsocks",
+                "password": "secret",
+                "port": 8388,
+                "security": "none",
+                "network": "tcp",
+                "shadowsocks_method": "aes-256-gcm",
+            }
+        )
+
+        config = xray.make_xray_config("1.1.1.1", 18080, profile, fragment)
+
+        self.assertEqual(
+            config["outbounds"][0]["streamSettings"]["sockopt"],
+            {"dialerProxy": "fragment"},
+        )
+        self.assertEqual(config["outbounds"][1]["settings"]["fragment"], fragment)
+
     def test_make_stream_settings_supports_reality_tcp(self):
         profile = ProxyProfile(
             **{
