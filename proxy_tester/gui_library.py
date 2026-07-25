@@ -212,6 +212,7 @@ class ProxyLibraryMixin:
         self.proxy_library_table.bind("<Button-3>", self.open_proxy_library_menu)
         self.proxy_library_table.bind("<Button-2>", self.open_proxy_library_menu)
         self.proxy_library_table.bind("<Double-1>", lambda _event: self.run_library_config_with_xray())
+        self.proxy_library_table.bind("<Delete>", self.delete_selected_proxy_library_configs)
 
         self.proxy_library_menu = tk.Menu(self, tearoff=0)
         self.proxy_library_menu.add_command(
@@ -273,6 +274,12 @@ class ProxyLibraryMixin:
         save_proxy_library(self.proxy_library_entries)
         self._render_proxy_library()
         self.proxy_library_status_var.set(f"{len(self.proxy_library_entries)} saved configurations")
+
+    def delete_selected_proxy_library_configs(self, _event=None):
+        if self.proxy_library_worker and self.proxy_library_worker.is_alive():
+            return "break"
+        self.remove_proxy_library_configs()
+        return "break"
 
     def clear_proxy_library_results(self):
         selected = set(self._selected_proxy_library_ids())

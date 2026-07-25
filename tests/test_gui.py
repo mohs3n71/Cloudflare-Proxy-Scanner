@@ -86,6 +86,13 @@ class FakeRenderTable(FakeRefreshTable):
         self.seen_item = item
 
 
+class FakeRunnerRenderTable(FakeRenderTable):
+    def heading(self, column, **kwargs):
+        if not hasattr(self, "headings"):
+            self.headings = {}
+        self.headings.setdefault(column, {}).update(kwargs)
+
+
 class FakeLog:
     def __init__(self):
         self.lines = []
@@ -1065,7 +1072,7 @@ class GuiTests(unittest.TestCase):
         app.fragment_length_entry = FakeButton()
         app.runner_process = None
         app.runner_fragment_scan_result_var = FakeVar()
-        app.runner_fragment_results = FakeRenderTable()
+        app.runner_fragment_results = FakeRunnerRenderTable()
         app.runner_download_button = FakeButton()
         app.runner_upload_button = FakeButton()
         app.runner_fragment_scan_button = FakeButton()
@@ -1096,7 +1103,7 @@ class GuiTests(unittest.TestCase):
 
     def test_sort_runner_fragment_results_by_speed(self):
         app = object.__new__(gui.ProxyTesterGui)
-        app.runner_fragment_results = FakeRenderTable()
+        app.runner_fragment_results = FakeRunnerRenderTable()
         app.runner_fragment_scan_rows = [
             {
                 "fragment": {"packets": "a", "interval": "1", "length": "1"},
@@ -1119,6 +1126,59 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(app.runner_fragment_sort_column, "speed")
         self.assertTrue(app.runner_fragment_sort_reverse)
         self.assertEqual(app.runner_fragment_results.inserted[0]["values"][3], "b")
+        self.assertEqual(app.runner_fragment_results.headings["speed"]["text"], "▶ Speed (Mbps) ▼")
+
+    def test_runner_fragment_heading_shows_active_ascending_sort(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.runner_fragment_results = FakeHeadingTable()
+        app.runner_fragment_sort_column = "latency"
+        app.runner_fragment_sort_reverse = False
+
+        app._update_runner_fragment_headings()
+
+        self.assertEqual(app.runner_fragment_results.headings["latency"]["text"], "▶ Latency (ms) ▲")
+        self.assertEqual(app.runner_fragment_results.headings["speed"]["text"], "Speed (Mbps)")
+
+    def test_runner_fragment_context_menu_selects_clicked_row(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.runner_fragment_results = Mock()
+        app.runner_fragment_results.identify_row.return_value = "row-2"
+        app.runner_fragment_results.selection.return_value = ("row-1",)
+        app.runner_fragment_menu = Mock()
+        event = Mock(y=20, x_root=100, y_root=200)
+
+        app.open_runner_fragment_menu(event)
+
+        app.runner_fragment_results.selection_set.assert_called_once_with("row-2")
+        app.runner_fragment_menu.tk_popup.assert_called_once_with(100, 200)
+        app.runner_fragment_menu.grab_release.assert_called_once()
+
+    def test_apply_selected_runner_fragment_updates_fields(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.runner_fragment_results = FakeRunnerRenderTable()
+        table_item = app.runner_fragment_results.insert("", "end", values=())
+        fragment = {"packets": "1-5", "interval": "2-5", "length": "500-1000"}
+        app.runner_fragment_items = {table_item: {"fragment": fragment}}
+        app.runner_fragment_results.selected = [table_item]
+        app.fragment_enabled_var = FakeVar(False)
+        app.fragment_packets_var = FakeVar()
+        app.fragment_interval_var = FakeVar()
+        app.fragment_length_var = FakeVar()
+        app.fragment_packets_entry = FakeButton()
+        app.fragment_interval_entry = FakeButton()
+        app.fragment_length_entry = FakeButton()
+        app.runner_fragment_scan_result_var = FakeVar()
+        app.runner_ip_var = FakeVar("104.16.1.1")
+        app.runner_log = FakeLog()
+        app._runner_is_active = Mock(return_value=False)
+
+        app.apply_selected_runner_fragment()
+
+        self.assertTrue(app.fragment_enabled_var.value)
+        self.assertEqual(app.fragment_packets_var.value, "1-5")
+        self.assertEqual(app.fragment_interval_var.value, "2-5")
+        self.assertEqual(app.fragment_length_var.value, "500-1000")
+        self.assertIn("Applied selected fragment", app.runner_fragment_scan_result_var.value)
 
     def test_sorted_runner_fragment_results_by_latency_ascending(self):
         app = object.__new__(gui.ProxyTesterGui)

@@ -286,6 +286,26 @@ class ProxyLibraryGuiTests(unittest.TestCase):
         self.assertNotIn(removed_id, [entry["id"] for entry in app.proxy_library_entries])
         save.assert_called_once()
 
+    def test_delete_key_removes_selected_configs(self):
+        app = self.make_app()
+        app.remove_proxy_library_configs = Mock()
+
+        result = app.delete_selected_proxy_library_configs()
+
+        app.remove_proxy_library_configs.assert_called_once()
+        self.assertEqual(result, "break")
+
+    def test_delete_key_is_ignored_during_active_test(self):
+        app = self.make_app()
+        app.proxy_library_worker = FakeThread(None, (), True)
+        app.proxy_library_worker.start()
+        app.remove_proxy_library_configs = Mock()
+
+        result = app.delete_selected_proxy_library_configs()
+
+        app.remove_proxy_library_configs.assert_not_called()
+        self.assertEqual(result, "break")
+
     def test_clear_results_only_changes_selected_rows(self):
         app = self.make_app()
         first, second = app.proxy_library_entries

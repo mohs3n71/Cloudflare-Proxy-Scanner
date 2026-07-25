@@ -87,6 +87,19 @@ JSON is also supported:
   {"packets": "1-3", "interval": "1-1", "length": "1-7"}
 ]"""
 
+RUNNER_FRAGMENT_COLUMN_LABELS = {
+    "rank": "#",
+    "latency": "Latency (ms)",
+    "speed": "Speed (Mbps)",
+    "packets": "Packets",
+    "interval": "Interval",
+    "length": "Length",
+}
+SORT_ASCENDING_ICON = "\u25b2"
+SORT_DESCENDING_ICON = "\u25bc"
+SORT_ACTIVE_ICON = "\u25b6"
+
+
 def parse_fragment_variations(text):
     text = text.strip()
     if not text:
@@ -377,21 +390,29 @@ class RunnerMixin:
             show="headings",
             height=5,
         )
-        for column, label, width in (
-            ("rank", "#", 40),
-            ("latency", "Latency (ms)", 90),
-            ("speed", "Speed (Mbps)", 95),
-            ("packets", "Packets", 90),
-            ("interval", "Interval", 90),
-            ("length", "Length", 90),
+        for column, width in (
+            ("rank", 40),
+            ("latency", 90),
+            ("speed", 95),
+            ("packets", 90),
+            ("interval", 90),
+            ("length", 90),
         ):
             self.runner_fragment_results.heading(
                 column,
-                text=label,
+                text=RUNNER_FRAGMENT_COLUMN_LABELS[column],
                 command=lambda col=column: self._sort_runner_fragment_results_by_column(col),
             )
             self.runner_fragment_results.column(column, width=width, anchor="w")
         self.runner_fragment_results.grid(row=2, column=0, columnspan=6, sticky="ew", pady=(8, 0))
+        self.runner_fragment_results.bind("<Button-3>", self.open_runner_fragment_menu)
+        self.runner_fragment_results.bind("<Button-2>", self.open_runner_fragment_menu)
+        self.runner_fragment_menu = tk.Menu(self, tearoff=0)
+        self.runner_fragment_menu.add_command(
+            label="Apply Selected Fragment",
+            command=self.apply_selected_runner_fragment,
+        )
+        self._update_runner_fragment_headings()
 
         ttk.Label(parent, text="Xray Activity Log").grid(row=1, column=0, sticky="w", padx=12, pady=(0, 4))
         log_frame = ttk.Frame(parent)
@@ -740,7 +761,14 @@ class RunnerMixin:
             except Exception as exc:
                 result = {"ip": ip, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
             value = result.get(key, -1) if result.get("ok") else -1
-            results.append({"fragment": fragment, "value": value, "result": result})
+            results.append(
+                {
+                    "fragment": fragment,
+                    "value": value,
+                    "result": result,
+                    "scan_index": index,
+                }
+            )
             self.events.put(("runner_fragment_scan_progress", index, total, speed_mode, fragment, value))
             if self.runner_fragment_scan_stop_event.is_set():
                 stopped = True
@@ -930,14 +958,16 @@ class RunnerMixin:
             return
         for item in self.runner_fragment_results.get_children():
             self.runner_fragment_results.delete(item)
+        self.runner_fragment_items = {}
 
     def _render_runner_fragment_results(self, results):
         self._clear_runner_fragment_results()
+        self._update_runner_fragment_headings()
         sorted_results = self._sorted_runner_fragment_results(results)
         for index, item in enumerate(sorted_results, 1):
             fragment = item["fragment"]
             result = item.get("result", {})
-            self.runner_fragment_results.insert(
+            table_item = self.runner_fragment_results.insert(
                 "",
                 "end",
                 values=(
@@ -949,6 +979,7 @@ class RunnerMixin:
                     fragment["length"],
                 ),
             )
+            self.runner_fragment_items[table_item] = item
 
     def _sort_runner_fragment_results_by_column(self, column):
         current_column = self.__dict__.get("runner_fragment_sort_column", "rank")
@@ -959,6 +990,40 @@ class RunnerMixin:
             self.runner_fragment_sort_column = column
             self.runner_fragment_sort_reverse = column in ("speed",)
         self._render_runner_fragment_results(self.runner_fragment_scan_rows)
+
+    def _update_runner_fragment_headings(self):
+        if "runner_fragment_results" not in self.__dict__:
+            return
+        column = self.__dict__.get("runner_fragment_sort_column", "rank")
+        reverse = self.__dict__.get("runner_fragment_sort_reverse", False)
+        direction = SORT_DESCENDING_ICON if reverse else SORT_ASCENDING_ICON
+        for key, label in RUNNER_FRAGMENT_COLUMN_LABELS.items():
+            text = f"{SORT_ACTIVE_ICON} {label} {direction}" if key == column else label
+            self.runner_fragment_results.heading(key, text=text)
+
+    def open_runner_fragment_menu(self, event):
+        item = self.runner_fragment_results.identify_row(event.y)
+        if not item:
+            return
+        if item not in self.runner_fragment_results.selection():
+            self.runner_fragment_results.selection_set(item)
+        try:
+            self.runner_fragment_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.runner_fragment_menu.grab_release()
+
+    def apply_selected_runner_fragment(self):
+        selected = self.runner_fragment_results.selection()
+        if not selected:
+            return
+        result = self.runner_fragment_items.get(selected[0])
+        if result is None:
+            return
+        fragment = result["fragment"]
+        self._apply_runner_fragment(
+            fragment,
+            f"Applied selected fragment: {self._fragment_summary(fragment)}",
+        )
 
     def _sorted_runner_fragment_results(self, results):
         return sorted(
@@ -997,6 +1062,13 @@ class RunnerMixin:
             )
             return
         fragment = saved["fragment"]
+        self._apply_runner_fragment(
+            fragment,
+            f"Applied saved {speed_mode}: {saved.get('speed_mbps', -1)} Mbps, "
+            f"latency={saved.get('latency_ms', -1)} ms",
+        )
+
+    def _apply_runner_fragment(self, fragment, status):
         should_restart = self._runner_is_active()
         if should_restart:
             self.stop_xray_runner()
@@ -1005,14 +1077,11 @@ class RunnerMixin:
         self.fragment_interval_var.set(fragment["interval"])
         self.fragment_length_var.set(fragment["length"])
         self._sync_fragment_state()
-        self.runner_fragment_scan_result_var.set(
-            f"Applied saved {speed_mode}: {saved.get('speed_mbps', -1)} Mbps, "
-            f"latency={saved.get('latency_ms', -1)} ms"
-        )
-        self._append_runner_log(f"Applied saved fragment: {self._fragment_summary(fragment)}")
+        self.runner_fragment_scan_result_var.set(status)
+        self._append_runner_log(f"Applied fragment: {self._fragment_summary(fragment)}")
         if should_restart:
-            self._append_runner_log("Restarting Xray with saved fragment.")
-            self.start_xray_runner(ip)
+            self._append_runner_log("Restarting Xray with the applied fragment.")
+            self.start_xray_runner(self.runner_ip_var.get().strip())
 
     def open_custom_fragment_variations_modal(self):
         modal = tk.Toplevel(self)

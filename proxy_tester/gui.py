@@ -88,6 +88,7 @@ class ProxyTesterGui(
         self.runner_fragment_scan_rows = []
         self.runner_fragment_sort_column = "rank"
         self.runner_fragment_sort_reverse = False
+        self.runner_fragment_items = {}
         self._init_proxy_library()
 
         self._build_ui()
