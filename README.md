@@ -155,11 +155,13 @@ The Windows GUI launcher uses `pythonw.exe`, so it opens the GUI without keeping
 - Choose `Random from one range` or `Every IP in one range`. The selector includes built-in Cloudflare ranges and saved custom ranges.
 - Choose `Random IPs from custom ranges` to sample across all custom CIDRs together.
 - Use `Edit Ranges` to add, edit, or clear persistent custom IPv4 CIDRs. Enter one CIDR per line; bare IP addresses are accepted as `/32` ranges.
-- Set IP count for random modes. The count is ignored for full all-range scans.
+- Set IP count for random modes. The default is `1000`; the count is ignored for full all-range scans.
 - Set scan parallelism: `10`, `20`, `50`, `100`, or `200`. Default is `50`.
 - Set scan timeout. Default is `2000ms`.
 - Start or stop a scan.
-- Optionally enable `Auto speed test after scan` to speed-test passed IPs immediately after a completed scan.
+- Optionally enable `Speed test after scan` to speed-test passed IPs immediately after a completed scan.
+- `Optimized mode for restricted networks` runs every end-to-end IP check with the built-in `fingerprint: unsafe`, cipher-suite, and two-layer FinalMask preset. It requires a TLS configuration.
+- The same preset is used for saved-result speed tests while this scanner option is active. Standard speed-test fragmentation controls are disabled and ignored.
 
 **Saved Results and Speed Test**
 
@@ -192,6 +194,8 @@ The Windows GUI launcher uses `pythonw.exe`, so it opens the GUI without keeping
 - Fragmentation is disabled by default in the Xray Runner.
 - Fragment defaults are `Packets: tlshello`, `Interval: 1-2`, and `Length: 5-10`.
 - Disable `Enable fragment` to run the selected IP without fragment settings. When enabled, Xray's `dialerProxy` fragments the real outer TLS ClientHello used to connect to the selected proxy IP.
+- `Optimized mode for restricted networks` applies the built-in native-TLS preset: `fingerprint: unsafe`, an explicit cipher-suite list, and two ordered FinalMask fragment layers. It requires a TLS configuration.
+- While optimized mode is enabled, standard fragment controls and the standard fragment scanner are disabled and their values are not included in runner, export, or runner speed-test configurations.
 - Use `Start Xray` and `Stop Xray` to control the local runner.
 - Use `Export Xray Config` to save the complete runner configuration as JSON, including fragmentation when enabled.
 - While Xray is running, IP, port, sharing, and fragment controls are locked.
@@ -683,10 +687,12 @@ chmod +x run_gui.sh
 - اسکن رندوم یا تمام IPهای یک رنج انتخاب‌شده؛ رنج‌های سفارشی نیز داخل همین فهرست نمایش داده می‌شوند.
 - اسکن رندوم از مجموع تمام رنج‌های سفارشی ذخیره‌شده.
 - افزودن و ویرایش رنج‌های IPv4 سفارشی با دکمه `Edit Ranges`. هر CIDR را در یک خط وارد کنید؛ IP تکی به‌صورت رنج `/32` ذخیره می‌شود.
-- انتخاب تعداد IP.
+- انتخاب تعداد IP؛ مقدار پیش‌فرض `1000` است.
 - تنظیم تعداد تست موازی: `10`، `20`، `50`، `100` یا `200`. مقدار پیش‌فرض `50` است.
 - تنظیم timeout اسکن. مقدار پیش‌فرض `2000ms` است.
 - شروع یا توقف اسکن.
+- گزینه `Optimized mode for restricted networks` تمام تست‌های سرتاسری IP را با اثرانگشت `unsafe`، فهرست cipher suiteها و FinalMask دولایه داخلی اجرا می‌کند. این حالت به کانفیگ TLS نیاز دارد.
+- تا وقتی این گزینه فعال است، تست سرعت خروجی‌ها نیز از همین تنظیم داخلی استفاده می‌کند و کنترل‌های فرگمنت معمولی تست سرعت غیرفعال و نادیده گرفته می‌شوند.
 
 **Saved Results and Speed Test**
 
@@ -714,6 +720,8 @@ chmod +x run_gui.sh
 
 - با دکمه `Export Xray Config` می‌توانید کانفیگ کامل Xray را با فرمت JSON ذخیره کنید. اگر فرگمنت فعال باشد، تنظیمات آن نیز داخل فایل قرار می‌گیرد.
 - هنگام فعال بودن فرگمنت، برنامه با `dialerProxy` همان ClientHello واقعی اتصال TLS به IP پراکسی انتخاب‌شده را فرگمنت می‌کند؛ ترافیک TLS سایت‌های داخل تونل هدف فرگمنت نیست.
+- گزینه `Optimized mode for restricted networks` یک تنظیم داخلی ویژه شبکه‌های محدودشده را اعمال می‌کند: اثرانگشت TLS برابر `unsafe`، فهرست مشخص cipher suiteها و دو لایه مرتب FinalMask. این حالت فقط برای کانفیگ‌های TLS قابل استفاده است.
+- وقتی این حالت فعال باشد، تنظیمات فرگمنت معمولی و اسکنر فرگمنت استاندارد غیرفعال می‌شوند و مقادیر آن‌ها در اجرای Xray، خروجی JSON یا تست سرعت این تب استفاده نمی‌شوند.
 - با قرار دادن مقدار `Packets` روی `tlshello` می‌توانید ClientHello واقعی را هدف بگیرید. مقادیر عددی مثل `1-3` روی شماره writeهای جریان TCP اعمال می‌شوند.
 - هنگام اجرای اسکن فرگمنت، دکمه `Apply Best Saved Result` تا پایان یا توقف اسکن غیرفعال می‌ماند.
 

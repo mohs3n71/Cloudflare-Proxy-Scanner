@@ -34,13 +34,36 @@ class ConfigMixin:
         self.count_entry.configure(state="disabled" if full_mode else "normal")
 
     def _sync_speed_fragment_state(self):
-        state = "normal" if self.speed_fragment_enabled_var.get() else "disabled"
+        restricted_mode = self._scanner_restricted_network_mode_enabled()
+        if "speed_fragment_enabled_check" in self.__dict__:
+            self.speed_fragment_enabled_check.configure(
+                state="disabled" if restricted_mode else "normal"
+            )
+        state = (
+            "normal"
+            if self.speed_fragment_enabled_var.get() and not restricted_mode
+            else "disabled"
+        )
         for entry in (
             self.speed_fragment_packets_entry,
             self.speed_fragment_interval_entry,
             self.speed_fragment_length_entry,
         ):
             entry.configure(state=state)
+
+    def _scanner_restricted_network_mode_enabled(self):
+        value = self.__dict__.get("scanner_restricted_network_mode_var")
+        return bool(value is not None and value.get())
+
+    def _validated_scanner_restricted_network_mode(self, profile):
+        enabled = self._scanner_restricted_network_mode_enabled()
+        if enabled and getattr(profile, "security", "") != "tls":
+            messagebox.showerror(
+                "TLS Configuration Required",
+                "Optimized mode for restricted networks requires a TLS configuration.",
+            )
+            return None
+        return enabled
 
     def _select_config(self):
         name = self.config_var.get()
@@ -323,6 +346,8 @@ class ConfigMixin:
         return int(size_mb * 1024 * 1024), timeout_ms
 
     def _speed_fragment_settings(self):
+        if self._scanner_restricted_network_mode_enabled():
+            return {}
         if not self.speed_fragment_enabled_var.get():
             return {}
         fragment = {

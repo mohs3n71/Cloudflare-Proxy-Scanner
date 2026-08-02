@@ -9,6 +9,8 @@ from proxy_tester.settings import (
     DEFAULT_FRAGMENT_INTERVAL,
     DEFAULT_FRAGMENT_LENGTH,
     DEFAULT_FRAGMENT_PACKETS,
+    DEFAULT_RESTRICTED_NETWORK_MODE,
+    DEFAULT_SCAN_IP_COUNT,
     RunnerSettings,
     SYSTEM_PROXY_SET,
     load_custom_range_values,
@@ -21,6 +23,9 @@ from proxy_tester.settings import (
 
 
 class RunnerSettingsTests(unittest.TestCase):
+    def test_default_scan_ip_count_is_one_thousand(self):
+        self.assertEqual(DEFAULT_SCAN_IP_COUNT, 1000)
+
     def test_appearance_round_trip_preserves_other_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "settings.json")
@@ -43,6 +48,7 @@ class RunnerSettingsTests(unittest.TestCase):
 
     def test_fragmentation_is_disabled_by_default(self):
         self.assertFalse(DEFAULT_FRAGMENT_ENABLED)
+        self.assertFalse(DEFAULT_RESTRICTED_NETWORK_MODE)
         self.assertFalse(RunnerSettings().fragment_enabled)
 
     def test_fragment_defaults_target_real_clienthello(self):

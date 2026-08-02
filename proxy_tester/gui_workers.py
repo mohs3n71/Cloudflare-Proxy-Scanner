@@ -20,6 +20,10 @@ class WorkerMixin:
         self.remove_failed_button.configure(state="disabled" if running else "normal")
         self.output_combo.configure(state="disabled" if running else "readonly")
         self.refresh_outputs_button.configure(state="disabled" if running else "normal")
+        if "scanner_restricted_network_mode_check" in self.__dict__:
+            self.scanner_restricted_network_mode_check.configure(
+                state="disabled" if running else "normal"
+            )
         self._set_speed_fragment_state("disabled" if running else "normal")
         self.stop_scan_button.configure(state="normal" if running and operation == "scan" else "disabled")
         self.stop_speed_button.configure(state="normal" if running and operation == "speed" else "disabled")
@@ -129,6 +133,9 @@ class WorkerMixin:
         profile = self._selected_profile()
         if profile is None or not self._validate_settings():
             return
+        restricted_network_mode = self._validated_scanner_restricted_network_mode(profile)
+        if restricted_network_mode is None:
+            return
         try:
             ips, source = self._make_scan_ips()
         except ValueError as exc:
@@ -136,13 +143,22 @@ class WorkerMixin:
             return
         if not ips:
             return
-        self._start_worker(ips, source, profile, speed_mode=None)
+        self._start_worker(
+            ips,
+            source,
+            profile,
+            speed_mode=None,
+            restricted_network_mode=restricted_network_mode,
+        )
 
     def start_speed_test(self):
         profile = self._selected_profile()
         speed_settings = self._speed_settings()
         speed_fragment = self._speed_fragment_settings()
         if profile is None or speed_settings is None or speed_fragment is None:
+            return
+        restricted_network_mode = self._validated_scanner_restricted_network_mode(profile)
+        if restricted_network_mode is None:
             return
         path = self._selected_output_path()
         if not path:
@@ -162,6 +178,7 @@ class WorkerMixin:
             speed_test_bytes=speed_settings[0],
             speed_timeout_ms=speed_settings[1],
             speed_fragment=speed_fragment,
+            restricted_network_mode=restricted_network_mode,
         )
 
     def start_speed_test_for_selected(self, speed_mode=None):
@@ -169,6 +186,9 @@ class WorkerMixin:
         speed_settings = self._speed_settings()
         speed_fragment = self._speed_fragment_settings()
         if profile is None or speed_settings is None or speed_fragment is None:
+            return
+        restricted_network_mode = self._validated_scanner_restricted_network_mode(profile)
+        if restricted_network_mode is None:
             return
         ips = self._selected_table_ips()
         if not ips:
@@ -183,6 +203,7 @@ class WorkerMixin:
             speed_test_bytes=speed_settings[0],
             speed_timeout_ms=speed_settings[1],
             speed_fragment=speed_fragment,
+            restricted_network_mode=restricted_network_mode,
             restore_selection_ips=ips,
             reset_sort=False,
         )
@@ -199,6 +220,7 @@ class WorkerMixin:
         speed_fragment=None,
         restore_selection_ips=None,
         reset_sort=True,
+        restricted_network_mode=False,
     ):
         self._clear_results(initial_results=initial_results, reset_sort=reset_sort)
         self.stop_event.clear()
@@ -213,10 +235,20 @@ class WorkerMixin:
             self._log("Speed tests run sequentially.")
             self._log(f"Test size: {round(speed_test_bytes / 1024 / 1024, 2)} MB")
             self._log(f"Speed test timeout: {speed_timeout_ms} ms")
-            self._log(f"Speed test fragmentation: {'enabled' if speed_fragment else 'disabled'}")
+            if restricted_network_mode:
+                self._log(
+                    "Optimized restricted-network mode: enabled "
+                    "(fingerprint=unsafe, custom cipher suites, FinalMask fragmentation)"
+                )
+            else:
+                self._log(f"Speed test fragmentation: {'enabled' if speed_fragment else 'disabled'}")
         else:
             self._log(f"Concurrent tests: {self.settings.concurrency}")
             self._log(f"Scan timeout: {self.settings.timeout_ms} ms")
+            self._log(
+                "Optimized restricted-network mode: "
+                f"{'enabled' if restricted_network_mode else 'disabled'}"
+            )
         self.worker_thread = threading.Thread(
             target=self._scan_worker,
             args=(
@@ -230,6 +262,7 @@ class WorkerMixin:
                 speed_fragment,
                 list(restore_selection_ips or []),
                 list(initial_results or []),
+                restricted_network_mode,
             ),
             daemon=True,
         )
@@ -247,6 +280,7 @@ class WorkerMixin:
         speed_fragment=None,
         restore_selection_ips=None,
         initial_results=None,
+        restricted_network_mode=False,
     ):
         results = []
         prefix = "speed-test-cloudflare-proxy-ips" if speed_mode else "working-cloudflare-proxy-ips"
@@ -274,6 +308,7 @@ class WorkerMixin:
                         speed_test_bytes=speed_test_bytes,
                         speed_timeout_ms=speed_timeout_ms,
                         fragment=speed_fragment if speed_mode else None,
+                        restricted_network_mode=restricted_network_mode,
                         process_started=self._track_process,
                         process_finished=self._untrack_process,
                     )

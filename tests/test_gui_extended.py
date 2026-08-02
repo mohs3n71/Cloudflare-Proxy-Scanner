@@ -22,6 +22,7 @@ class GuiConfigExtendedTests(unittest.TestCase):
         app.speed_size_var = FakeVar("1.5")
         app.speed_timeout_var = FakeVar("7000")
         app.speed_fragment_enabled_var = FakeVar(False)
+        app.scanner_restricted_network_mode_var = FakeVar(False)
         app.output_var = FakeVar("")
         app.output_paths_by_name = {}
         app.profile = None
@@ -58,6 +59,21 @@ class GuiConfigExtendedTests(unittest.TestCase):
             app._speed_fragment_settings(),
             {"packets": "1-3", "interval": "1-1", "length": "1-7"},
         )
+
+    def test_scanner_restricted_mode_requires_tls(self):
+        app = self.make_app()
+        app.scanner_restricted_network_mode_var.set(True)
+
+        self.assertTrue(
+            app._validated_scanner_restricted_network_mode(SimpleNamespace(security="tls"))
+        )
+        with patch.object(gui_config.messagebox, "showerror") as showerror:
+            result = app._validated_scanner_restricted_network_mode(
+                SimpleNamespace(security="reality")
+            )
+
+        self.assertIsNone(result)
+        showerror.assert_called_once()
 
     def test_selected_paths_profiles_and_csv_defaults(self):
         app = self.make_app()
@@ -248,6 +264,25 @@ class GuiWorkerExtendedTests(unittest.TestCase):
             (["192.0.2.1", "192.0.2.2"], "every IP in 192.0.2.0/30"),
         )
 
+    def test_start_scan_passes_restricted_network_mode_to_worker(self):
+        app = self.make_worker()
+        profile = SimpleNamespace(security="tls")
+        app._selected_profile = Mock(return_value=profile)
+        app._validate_settings = Mock(return_value=True)
+        app._validated_scanner_restricted_network_mode = Mock(return_value=True)
+        app._make_scan_ips = Mock(return_value=(["1.1.1.1"], "all"))
+        app._start_worker = Mock()
+
+        app.start_scan()
+
+        app._start_worker.assert_called_once_with(
+            ["1.1.1.1"],
+            "all",
+            profile,
+            speed_mode=None,
+            restricted_network_mode=True,
+        )
+
     def test_scan_worker_saves_passed_results_and_reports_done(self):
         app = self.make_worker()
         results = [
@@ -266,6 +301,26 @@ class GuiWorkerExtendedTests(unittest.TestCase):
         self.assertEqual([event[0] for event in events].count("result"), 2)
         self.assertEqual(events[-1][0], "done")
         self.assertFalse(events[-1][4])
+
+    def test_scan_worker_passes_restricted_mode_to_every_e2e_test(self):
+        app = self.make_worker()
+        result = {"ip": "1.1.1.1", "ok": True, "ms": 20}
+        with patch.object(gui_workers, "test_ip", return_value=result) as test_ip, patch.object(
+            gui_workers, "save_scan_results", return_value=("output/run.csv", "output/latest.csv")
+        ):
+            app._scan_worker(
+                ["1.1.1.1"],
+                "all",
+                object(),
+                None,
+                AppSettings(1, 2000),
+                1024,
+                7000,
+                restricted_network_mode=True,
+            )
+
+        self.assertTrue(test_ip.call_args.kwargs["restricted_network_mode"])
+        self.assertIsNone(test_ip.call_args.kwargs["fragment"])
 
     def test_speed_worker_preserves_unrequested_metric(self):
         app = self.make_worker()
@@ -371,6 +426,7 @@ class GuiRunnerExtendedTests(unittest.TestCase):
         app.runner_port_var = FakeVar("1080")
         app.runner_share_var = FakeVar(False)
         app.fragment_enabled_var = FakeVar(False)
+        app.restricted_network_mode_var = FakeVar(False)
         app.runner_system_proxy_mode_var = FakeVar(gui_runner.SYSTEM_PROXY_DO_NOT_TOUCH)
         app.runner_process = None
         app.runner_temp_dir = None
@@ -419,7 +475,48 @@ class GuiRunnerExtendedTests(unittest.TestCase):
         fragment = {"packets": "tlshello", "interval": "1-2", "length": "5-10"}
         self.assertEqual(result["config"], expected_config)
         self.assertEqual(result["fragment"], fragment)
-        make_config.assert_called_once_with("1.1.1.1", 1080, "127.0.0.1", profile, fragment)
+        make_config.assert_called_once_with(
+            "1.1.1.1",
+            1080,
+            "127.0.0.1",
+            profile,
+            fragment,
+            restricted_network_mode=False,
+        )
+
+    def test_current_xray_runner_config_uses_restricted_network_preset(self):
+        app = self.make_runner()
+        profile = SimpleNamespace(name="demo.config", security="tls")
+        app._selected_profile = Mock(return_value=profile)
+        app.restricted_network_mode_var.set(True)
+        app.fragment_enabled_var.set(True)
+        expected_config = {"inbounds": [], "outbounds": []}
+
+        with patch.object(gui_runner, "make_xray_runner_config", return_value=expected_config) as make_config:
+            result = app._current_xray_runner_config()
+
+        self.assertEqual(result["fragment"], {})
+        self.assertTrue(result["restricted_network_mode"])
+        make_config.assert_called_once_with(
+            "1.1.1.1",
+            1080,
+            "127.0.0.1",
+            profile,
+            {},
+            restricted_network_mode=True,
+        )
+
+    def test_restricted_network_mode_requires_tls_profile(self):
+        app = self.make_runner()
+        profile = SimpleNamespace(name="demo.config", security="reality")
+        app._selected_profile = Mock(return_value=profile)
+        app.restricted_network_mode_var.set(True)
+
+        with patch.object(gui_runner.messagebox, "showerror") as showerror:
+            result = app._current_xray_runner_config()
+
+        self.assertIsNone(result)
+        showerror.assert_called_once()
 
     def test_export_xray_config_writes_complete_json(self):
         app = self.make_runner()
@@ -512,6 +609,22 @@ class GuiRunnerExtendedTests(unittest.TestCase):
         self.assertEqual(event[0:2], ("runner_speed_result", "upload"))
         self.assertFalse(event[2]["ok"])
         self.assertIn("RuntimeError", event[2]["error"])
+
+    def test_runner_speed_worker_passes_restricted_network_mode_to_xray(self):
+        app = self.make_runner()
+        with patch.object(gui_runner, "test_ip", return_value={"ip": "1.1.1.1", "ok": True}) as test_ip:
+            app._runner_speed_worker(
+                "1.1.1.1",
+                app.profile,
+                "download",
+                1024,
+                7000,
+                {},
+                restricted_network_mode=True,
+            )
+
+        self.assertTrue(test_ip.call_args.kwargs["restricted_network_mode"])
+        self.assertEqual(test_ip.call_args.kwargs["fragment"], {})
 
     def test_system_proxy_modes_are_applied_and_cleared(self):
         app = self.make_runner()

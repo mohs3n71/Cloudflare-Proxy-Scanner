@@ -458,6 +458,24 @@ class GuiTests(unittest.TestCase):
 
         self.assertEqual(app._speed_fragment_settings(), {})
 
+    def test_scanner_restricted_mode_ignores_and_disables_speed_fragment(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.scanner_restricted_network_mode_var = FakeVar(True)
+        app.speed_fragment_enabled_var = FakeVar(True)
+        app.speed_fragment_enabled_check = FakeButton()
+        app.speed_fragment_packets_var = FakeVar("1-3")
+        app.speed_fragment_interval_var = FakeVar("1-1")
+        app.speed_fragment_length_var = FakeVar("1-7")
+        app.speed_fragment_packets_entry = FakeButton()
+        app.speed_fragment_interval_entry = FakeButton()
+        app.speed_fragment_length_entry = FakeButton()
+
+        app._sync_speed_fragment_state()
+
+        self.assertEqual(app._speed_fragment_settings(), {})
+        self.assertEqual(app.speed_fragment_enabled_check.state, "disabled")
+        self.assertEqual(app.speed_fragment_packets_entry.state, "disabled")
+
     def test_sync_speed_fragment_state_disables_fragment_entries(self):
         app = object.__new__(gui.ProxyTesterGui)
         app.speed_fragment_enabled_var = FakeVar(False)
@@ -493,7 +511,35 @@ class GuiTests(unittest.TestCase):
             speed_test_bytes=1024,
             speed_timeout_ms=5000,
             speed_fragment={"packets": "1-3"},
+            restricted_network_mode=False,
             restore_selection_ips=["104.16.1.1", "104.16.1.3"],
+            reset_sort=False,
+        )
+
+    def test_selected_speed_test_uses_scanner_restricted_network_preset(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        profile = Mock(security="tls")
+        app.scanner_restricted_network_mode_var = FakeVar(True)
+        app.speed_mode_var = FakeVar("download")
+        app.passed_results = [{"ip": "104.16.1.1"}]
+        app._selected_profile = Mock(return_value=profile)
+        app._speed_settings = Mock(return_value=(1024, 5000))
+        app._selected_table_ips = Mock(return_value=["104.16.1.1"])
+        app._start_worker = Mock()
+
+        app.start_speed_test_for_selected("download")
+
+        app._start_worker.assert_called_once_with(
+            ["104.16.1.1"],
+            "selected table IPs",
+            profile,
+            speed_mode="download",
+            initial_results=app.passed_results,
+            speed_test_bytes=1024,
+            speed_timeout_ms=5000,
+            speed_fragment={},
+            restricted_network_mode=True,
+            restore_selection_ips=["104.16.1.1"],
             reset_sort=False,
         )
 
@@ -765,6 +811,37 @@ class GuiTests(unittest.TestCase):
 
         self.assertEqual(app._runner_fragment_settings(), {})
 
+    def test_runner_fragment_settings_ignores_standard_fragment_in_restricted_mode(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.restricted_network_mode_var = FakeVar(True)
+        app.fragment_enabled_var = FakeVar(True)
+        app.fragment_packets_var = FakeVar("1-3")
+        app.fragment_interval_var = FakeVar("1-1")
+        app.fragment_length_var = FakeVar("1-7")
+
+        self.assertEqual(app._runner_fragment_settings(), {})
+
+    def test_restricted_network_mode_disables_standard_fragment_controls(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.restricted_network_mode_var = FakeVar(True)
+        app.fragment_enabled_var = FakeVar(True)
+        app.runner_process = None
+        app.fragment_enabled_check = FakeButton()
+        app.fragment_packets_entry = FakeButton()
+        app.fragment_interval_entry = FakeButton()
+        app.fragment_length_entry = FakeButton()
+        app.runner_fragment_scan_button = FakeButton()
+        app.runner_fragment_variations_button = FakeButton()
+        app.runner_apply_best_button = FakeButton()
+
+        app._sync_fragment_state()
+
+        self.assertEqual(app.fragment_enabled_check.state, "disabled")
+        self.assertEqual(app.fragment_packets_entry.state, "disabled")
+        self.assertEqual(app.runner_fragment_scan_button.state, "disabled")
+        self.assertEqual(app.runner_fragment_variations_button.state, "disabled")
+        self.assertEqual(app.runner_apply_best_button.state, "disabled")
+
     def test_sync_fragment_state_disables_fragment_entries(self):
         app = object.__new__(gui.ProxyTesterGui)
         app.fragment_enabled_var = FakeVar(False)
@@ -788,6 +865,7 @@ class GuiTests(unittest.TestCase):
         app.runner_share_check = FakeButton()
         app.runner_system_proxy_combo = FakeButton()
         app.fragment_enabled_check = FakeButton()
+        app.restricted_network_mode_check = FakeButton()
         app.fragment_packets_entry = FakeButton()
         app.fragment_interval_entry = FakeButton()
         app.fragment_length_entry = FakeButton()
@@ -799,6 +877,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(app.runner_share_check.state, "disabled")
         self.assertEqual(app.runner_system_proxy_combo.state, "disabled")
         self.assertEqual(app.fragment_enabled_check.state, "disabled")
+        self.assertEqual(app.restricted_network_mode_check.state, "disabled")
         self.assertEqual(app.fragment_packets_entry.state, "disabled")
 
     def test_runner_port_validates_range(self):
@@ -1152,6 +1231,32 @@ class GuiTests(unittest.TestCase):
         app.runner_fragment_results.selection_set.assert_called_once_with("row-2")
         app.runner_fragment_menu.tk_popup.assert_called_once_with(100, 200)
         app.runner_fragment_menu.grab_release.assert_called_once()
+
+    def test_restricted_network_mode_disables_fragment_context_action(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.restricted_network_mode_var = FakeVar(True)
+        app.runner_fragment_menu = Mock()
+        app.runner_fragment_menu_apply_index = 0
+
+        app._sync_runner_fragment_menu_state()
+
+        app.runner_fragment_menu.entryconfigure.assert_called_once_with(0, state="disabled")
+
+    def test_restricted_network_mode_blocks_direct_fragment_apply(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.restricted_network_mode_var = FakeVar(True)
+        app.runner_fragment_results = Mock()
+        app.runner_fragment_results.selection.return_value = ("row-1",)
+        app.runner_fragment_items = {
+            "row-1": {
+                "fragment": {"packets": "1-3", "interval": "1-1", "length": "1-7"}
+            }
+        }
+        app._apply_runner_fragment = Mock()
+
+        app.apply_selected_runner_fragment()
+
+        app._apply_runner_fragment.assert_not_called()
 
     def test_apply_selected_runner_fragment_updates_fields(self):
         app = object.__new__(gui.ProxyTesterGui)

@@ -20,6 +20,8 @@ from .settings import (
     DEFAULT_FRAGMENT_INTERVAL,
     DEFAULT_FRAGMENT_LENGTH,
     DEFAULT_FRAGMENT_PACKETS,
+    DEFAULT_RESTRICTED_NETWORK_MODE,
+    DEFAULT_SCAN_IP_COUNT,
     load_custom_range_values,
     load_appearance_mode,
     load_runner_settings,
@@ -223,7 +225,7 @@ class ProxyTesterGui(
         self._refresh_range_options()
 
         ttk.Label(scan_box, text="Number of IPs").grid(row=7, column=0, sticky="w")
-        self.count_var = tk.StringVar(value="100")
+        self.count_var = tk.StringVar(value=str(DEFAULT_SCAN_IP_COUNT))
         self.count_entry = ttk.Entry(scan_box, textvariable=self.count_var, width=18)
         self.count_entry.grid(row=8, column=0, sticky="w", pady=(4, 4))
         self._sync_range_state()
@@ -243,11 +245,24 @@ class ProxyTesterGui(
         self.timeout_var = tk.StringVar(value=str(self.settings.timeout_ms))
         ttk.Entry(scan_settings, textvariable=self.timeout_var, width=10).grid(row=0, column=3, sticky="w", padx=(8, 0))
         self.auto_speed_after_scan_var = tk.BooleanVar(value=False)
+        scan_options = ttk.Frame(scan_box)
+        scan_options.grid(row=10, column=0, sticky="ew", pady=(0, 6))
+        scan_options.columnconfigure(1, weight=1)
         ttk.Checkbutton(
-            scan_box,
-            text="Run speed test after scan",
+            scan_options,
+            text="Speed test after scan",
             variable=self.auto_speed_after_scan_var,
-        ).grid(row=10, column=0, sticky="w", pady=(0, 6))
+        ).grid(row=0, column=0, sticky="w")
+        self.scanner_restricted_network_mode_var = tk.BooleanVar(
+            value=DEFAULT_RESTRICTED_NETWORK_MODE
+        )
+        self.scanner_restricted_network_mode_check = ttk.Checkbutton(
+            scan_options,
+            text="Optimized mode for restricted networks",
+            variable=self.scanner_restricted_network_mode_var,
+            command=self._sync_speed_fragment_state,
+        )
+        self.scanner_restricted_network_mode_check.grid(row=0, column=1, sticky="e", padx=(8, 0))
         self.start_button = ttk.Button(scan_box, text="Start Scan", command=self.start_scan)
         self.start_button.grid(row=11, column=0, sticky="ew")
         self.stop_scan_button = ttk.Button(scan_box, text="Stop Scan", command=self.stop_current, state="disabled")

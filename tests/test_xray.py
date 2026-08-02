@@ -85,6 +85,66 @@ class XrayTests(unittest.TestCase):
         self.assertNotIn("proxySettings", config["outbounds"][1])
         self.assertEqual(config["routing"]["rules"][0]["outboundTag"], "proxy")
 
+    def test_restricted_network_mode_uses_unsafe_tls_and_exact_finalmask(self):
+        regular_fragment = {"packets": "1-3", "interval": "1-1", "length": "1-7"}
+
+        config = xray.make_xray_config(
+            "104.16.1.1",
+            18080,
+            sample_profile(),
+            fragment=regular_fragment,
+            restricted_network_mode=True,
+        )
+
+        self.assertEqual(len(config["outbounds"]), 1)
+        stream = config["outbounds"][0]["streamSettings"]
+        self.assertEqual(stream["tlsSettings"]["fingerprint"], "unsafe")
+        self.assertEqual(
+            stream["tlsSettings"]["cipherSuites"],
+            xray.RESTRICTED_NETWORK_CIPHER_SUITES,
+        )
+        self.assertEqual(stream["finalmask"], xray.restricted_network_finalmask())
+        self.assertNotIn("sockopt", stream)
+
+    def test_restricted_network_finalmask_contains_both_ordered_fragment_layers(self):
+        layers = xray.restricted_network_finalmask()["tcp"]
+
+        self.assertEqual(
+            layers[0],
+            {
+                "type": "fragment",
+                "settings": {
+                    "packets": "tlshello",
+                    "lengths": ["5", "94", "1"],
+                    "delays": ["0"],
+                    "maxSplit": "0",
+                },
+            },
+        )
+        self.assertEqual(
+            layers[1],
+            {
+                "type": "fragment",
+                "settings": {
+                    "packets": "1-1",
+                    "lengths": ["109", "1"],
+                    "delays": ["1"],
+                    "maxSplit": "355",
+                },
+            },
+        )
+
+    def test_restricted_network_mode_rejects_non_tls_profiles(self):
+        profile = ProxyProfile(**{**sample_profile().__dict__, "security": "reality"})
+
+        with self.assertRaisesRegex(ValueError, "requires a TLS configuration"):
+            xray.make_xray_config(
+                "104.16.1.1",
+                18080,
+                profile,
+                restricted_network_mode=True,
+            )
+
     def test_make_xray_runner_config_uses_socks_inbound_and_fragment_chain(self):
         fragment = {"packets": "1-3", "interval": "1-1", "length": "1-7"}
 

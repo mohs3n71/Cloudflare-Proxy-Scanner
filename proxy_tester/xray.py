@@ -19,6 +19,15 @@ UPLOAD_TEST_URL = "https://speed.cloudflare.com/__up"
 DEFAULT_SPEED_TEST_BYTES = 1 * 1024 * 1024
 DEFAULT_SPEED_TEST_TIMEOUT_MS = 7000
 UPLOAD_CONFIRMATION_PROBE_BYTES = 256 * 1024
+RESTRICTED_NETWORK_CIPHER_SUITES = (
+    "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:"
+    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:"
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:"
+    "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:"
+    "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:"
+    "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:"
+    "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+)
 
 
 def speed_url(base_url, byte_count):
@@ -80,10 +89,40 @@ def free_port():
         return s.getsockname()[1]
 
 
-def make_xray_config(ip, inbound_port, profile, fragment=None):
+def restricted_network_finalmask():
+    return {
+        "tcp": [
+            {
+                "type": "fragment",
+                "settings": {
+                    "packets": "tlshello",
+                    "lengths": ["5", "94", "1"],
+                    "delays": ["0"],
+                    "maxSplit": "0",
+                },
+            },
+            {
+                "type": "fragment",
+                "settings": {
+                    "packets": "1-1",
+                    "lengths": ["109", "1"],
+                    "delays": ["1"],
+                    "maxSplit": "355",
+                },
+            },
+        ]
+    }
+
+
+def make_xray_config(ip, inbound_port, profile, fragment=None, restricted_network_mode=False):
+    fragment = None if restricted_network_mode else fragment
     outbound = make_outbound(ip, profile)
     outbound["tag"] = "proxy"
-    stream_settings = make_stream_settings(profile, dialer_proxy="fragment" if fragment else "")
+    stream_settings = make_stream_settings(
+        profile,
+        dialer_proxy="fragment" if fragment else "",
+        restricted_network_mode=restricted_network_mode,
+    )
     if stream_settings:
         outbound["streamSettings"] = stream_settings
     outbounds = [outbound]
@@ -115,10 +154,22 @@ def make_xray_config(ip, inbound_port, profile, fragment=None):
     return config
 
 
-def make_xray_runner_config(ip, inbound_port, listen, profile, fragment):
+def make_xray_runner_config(
+    ip,
+    inbound_port,
+    listen,
+    profile,
+    fragment,
+    restricted_network_mode=False,
+):
+    fragment = None if restricted_network_mode else fragment
     proxy = make_outbound(ip, profile)
     proxy["tag"] = "proxy"
-    stream_settings = make_stream_settings(profile, dialer_proxy="fragment" if fragment else "")
+    stream_settings = make_stream_settings(
+        profile,
+        dialer_proxy="fragment" if fragment else "",
+        restricted_network_mode=restricted_network_mode,
+    )
     if stream_settings:
         proxy["streamSettings"] = stream_settings
     outbounds = [proxy]
@@ -225,7 +276,9 @@ def make_fragment_outbound(fragment):
     }
 
 
-def make_stream_settings(profile, dialer_proxy=""):
+def make_stream_settings(profile, dialer_proxy="", restricted_network_mode=False):
+    if restricted_network_mode and profile.security != "tls":
+        raise ValueError("Optimized restricted-network mode requires a TLS configuration")
     if profile.protocol == "shadowsocks":
         return {"sockopt": {"dialerProxy": dialer_proxy}} if dialer_proxy else {}
 
@@ -244,10 +297,12 @@ def make_stream_settings(profile, dialer_proxy=""):
     elif profile.security == "tls":
         settings["tlsSettings"] = {
             "serverName": profile.sni,
-            "fingerprint": profile.fingerprint,
+            "fingerprint": "unsafe" if restricted_network_mode else profile.fingerprint,
             "allowInsecure": profile.allow_insecure,
             "alpn": tls_alpn_for_xray(profile),
         }
+        if restricted_network_mode:
+            settings["tlsSettings"]["cipherSuites"] = RESTRICTED_NETWORK_CIPHER_SUITES
     if profile.network == "xhttp":
         xhttp_settings = {
             "path": profile.ws_path,
@@ -276,6 +331,8 @@ def make_stream_settings(profile, dialer_proxy=""):
         }
     if dialer_proxy:
         settings["sockopt"] = {"dialerProxy": dialer_proxy}
+    if restricted_network_mode:
+        settings["finalmask"] = restricted_network_finalmask()
     return settings
 
 
@@ -465,6 +522,7 @@ def test_ip(
     speed_test_bytes=DEFAULT_SPEED_TEST_BYTES,
     speed_timeout_ms=DEFAULT_SPEED_TEST_TIMEOUT_MS,
     fragment=None,
+    restricted_network_mode=False,
     process_started=None,
     process_finished=None,
 ):
@@ -472,7 +530,17 @@ def test_ip(
     with tempfile.TemporaryDirectory(prefix="xray-iptest-") as td:
         config_path = os.path.join(td, "config.json")
         with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(make_xray_config(ip, inbound_port, profile, fragment=fragment), f, indent=2)
+            json.dump(
+                make_xray_config(
+                    ip,
+                    inbound_port,
+                    profile,
+                    fragment=fragment,
+                    restricted_network_mode=restricted_network_mode,
+                ),
+                f,
+                indent=2,
+            )
 
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         proc = subprocess.Popen(

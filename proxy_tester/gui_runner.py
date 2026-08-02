@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 from .paths import OUTPUT_DIR, XRAY_EXE
 from .settings import (
     DEFAULT_FRAGMENT_ENABLED,
+    DEFAULT_RESTRICTED_NETWORK_MODE,
     RunnerSettings,
     SYSTEM_PROXY_CLEAR,
     SYSTEM_PROXY_DO_NOT_TOUCH,
@@ -171,6 +172,7 @@ class RunnerMixin:
         self.runner_share_var = tk.BooleanVar(value=settings.share)
         self.runner_system_proxy_mode_var = tk.StringVar(value=settings.system_proxy_mode)
         self.fragment_enabled_var = tk.BooleanVar(value=DEFAULT_FRAGMENT_ENABLED)
+        self.restricted_network_mode_var = tk.BooleanVar(value=DEFAULT_RESTRICTED_NETWORK_MODE)
         self.fragment_packets_var = tk.StringVar(value=settings.fragment_packets)
         self.fragment_interval_var = tk.StringVar(value=settings.fragment_interval)
         self.fragment_length_var = tk.StringVar(value=settings.fragment_length)
@@ -241,7 +243,14 @@ class RunnerMixin:
             variable=self.fragment_enabled_var,
             command=self._sync_fragment_state,
         )
-        self.fragment_enabled_check.grid(row=0, column=0, columnspan=6, sticky="w")
+        self.fragment_enabled_check.grid(row=0, column=0, columnspan=3, sticky="w")
+        self.restricted_network_mode_check = ttk.Checkbutton(
+            fragment_box,
+            text="Optimized mode for restricted networks",
+            variable=self.restricted_network_mode_var,
+            command=self._sync_fragment_state,
+        )
+        self.restricted_network_mode_check.grid(row=0, column=3, columnspan=3, sticky="e")
         ttk.Label(fragment_box, text="Packets").grid(row=1, column=0, sticky="w", pady=(8, 0))
         self.fragment_packets_entry = ttk.Entry(fragment_box, textvariable=self.fragment_packets_var, width=12)
         self.fragment_packets_entry.grid(
@@ -366,11 +375,12 @@ class RunnerMixin:
             state="disabled",
         )
         self.runner_fragment_scan_stop_button.grid(row=0, column=3, sticky="e", padx=(8, 0))
-        ttk.Button(
+        self.runner_fragment_variations_button = ttk.Button(
             fragment_scan_box,
             text="Edit Variations",
             command=self.open_custom_fragment_variations_modal,
-        ).grid(row=0, column=4, sticky="e", padx=(8, 0))
+        )
+        self.runner_fragment_variations_button.grid(row=0, column=4, sticky="e", padx=(8, 0))
         self.runner_apply_best_button = ttk.Button(
             fragment_scan_box,
             text="Apply Best Saved Result",
@@ -408,11 +418,13 @@ class RunnerMixin:
         self.runner_fragment_results.bind("<Button-3>", self.open_runner_fragment_menu)
         self.runner_fragment_results.bind("<Button-2>", self.open_runner_fragment_menu)
         self.runner_fragment_menu = tk.Menu(self, tearoff=0)
+        self.runner_fragment_menu_apply_index = 0
         self.runner_fragment_menu.add_command(
             label="Apply Selected Fragment",
             command=self.apply_selected_runner_fragment,
         )
         self._update_runner_fragment_headings()
+        self._sync_fragment_state()
 
         ttk.Label(parent, text="Xray Activity Log").grid(row=1, column=0, sticky="w", padx=12, pady=(0, 4))
         log_frame = ttk.Frame(parent)
@@ -426,12 +438,52 @@ class RunnerMixin:
         runner_log_scroll.grid(row=0, column=1, sticky="ns")
 
     def _sync_fragment_state(self):
-        if self._runner_is_active():
-            state = "disabled"
-        else:
-            state = "normal" if self.fragment_enabled_var.get() else "disabled"
+        runner_active = self._runner_is_active()
+        restricted_mode = self._restricted_network_mode_enabled()
+        fragment_toggle_state = "disabled" if runner_active or restricted_mode else "normal"
+        if "fragment_enabled_check" in self.__dict__:
+            self.fragment_enabled_check.configure(state=fragment_toggle_state)
+        state = (
+            "normal"
+            if self.fragment_enabled_var.get() and not runner_active and not restricted_mode
+            else "disabled"
+        )
         for entry in (self.fragment_packets_entry, self.fragment_interval_entry, self.fragment_length_entry):
             entry.configure(state=state)
+        profile = self.__dict__.get("runner_profile") or self.__dict__.get("profile")
+        scan_state = "normal" if not restricted_mode and profile is not None else "disabled"
+        for name in (
+            "runner_fragment_scan_button",
+            "runner_fragment_variations_button",
+            "runner_apply_best_button",
+        ):
+            widget = self.__dict__.get(name)
+            if widget is not None and not runner_active:
+                widget.configure(state=scan_state)
+        self._sync_runner_fragment_menu_state()
+
+    def _sync_runner_fragment_menu_state(self):
+        menu = self.__dict__.get("runner_fragment_menu")
+        if menu is None:
+            return
+        menu.entryconfigure(
+            self.__dict__.get("runner_fragment_menu_apply_index", 0),
+            state="disabled" if self._restricted_network_mode_enabled() else "normal",
+        )
+
+    def _restricted_network_mode_enabled(self):
+        value = self.__dict__.get("restricted_network_mode_var")
+        return bool(value is not None and value.get())
+
+    def _validated_restricted_network_mode(self, profile):
+        enabled = self._restricted_network_mode_enabled()
+        if enabled and getattr(profile, "security", "") != "tls":
+            messagebox.showerror(
+                "TLS Configuration Required",
+                "Optimized mode for restricted networks requires a TLS configuration.",
+            )
+            return None
+        return enabled
 
     def _set_runner_config_state(self, running):
         state = "disabled" if running else "normal"
@@ -441,6 +493,7 @@ class RunnerMixin:
             "runner_share_check",
             "runner_system_proxy_combo",
             "fragment_enabled_check",
+            "restricted_network_mode_check",
         ):
             widget = self.__dict__.get(name)
             if widget is None:
@@ -457,16 +510,19 @@ class RunnerMixin:
     def _set_runner_speed_state(self, running):
         profile = self.__dict__.get("runner_profile") or self.__dict__.get("profile")
         state = "disabled" if running or profile is None else "normal"
+        fragment_state = "disabled" if self._restricted_network_mode_enabled() else state
         if "runner_download_button" in self.__dict__:
             self.runner_download_button.configure(state=state)
         if "runner_upload_button" in self.__dict__:
             self.runner_upload_button.configure(state=state)
         if "runner_fragment_scan_button" in self.__dict__:
-            self.runner_fragment_scan_button.configure(state=state)
+            self.runner_fragment_scan_button.configure(state=fragment_state)
         if "runner_fragment_scan_stop_button" in self.__dict__:
             self.runner_fragment_scan_stop_button.configure(state="normal" if running else "disabled")
         if "runner_apply_best_button" in self.__dict__:
-            self.runner_apply_best_button.configure(state=state)
+            self.runner_apply_best_button.configure(state=fragment_state)
+        if "runner_fragment_variations_button" in self.__dict__:
+            self.runner_fragment_variations_button.configure(state=fragment_state)
         if "runner_speed_size_entry" in self.__dict__:
             self.runner_speed_size_entry.configure(state=state)
         if "runner_speed_timeout_entry" in self.__dict__:
@@ -494,6 +550,8 @@ class RunnerMixin:
         return port
 
     def _runner_fragment_settings(self):
+        if self._restricted_network_mode_enabled():
+            return {}
         if not self.fragment_enabled_var.get():
             return {}
         fragment = {
@@ -535,7 +593,8 @@ class RunnerMixin:
             return None
         port = self._runner_port()
         fragment = self._runner_fragment_settings()
-        if port is None or fragment is None:
+        restricted_network_mode = self._validated_restricted_network_mode(profile)
+        if port is None or fragment is None or restricted_network_mode is None:
             return None
         listen = "0.0.0.0" if self.runner_share_var.get() else "127.0.0.1"
         return {
@@ -543,7 +602,15 @@ class RunnerMixin:
             "port": port,
             "listen": listen,
             "fragment": fragment,
-            "config": make_xray_runner_config(ip, port, listen, profile, fragment),
+            "restricted_network_mode": restricted_network_mode,
+            "config": make_xray_runner_config(
+                ip,
+                port,
+                listen,
+                profile,
+                fragment,
+                restricted_network_mode=restricted_network_mode,
+            ),
             "profile": profile,
         }
 
@@ -580,6 +647,7 @@ class RunnerMixin:
         port = runner_config["port"]
         listen = runner_config["listen"]
         fragment = runner_config["fragment"]
+        restricted_network_mode = runner_config["restricted_network_mode"]
         if self._runner_is_active():
             self.stop_xray_runner()
 
@@ -612,7 +680,13 @@ class RunnerMixin:
         self.runner_status_var.set(f"Running {ip} on {listen}:{port}")
         self._clear_runner_log()
         self._append_runner_log(f"Starting Xray runner for {ip} on {listen}:{port}")
-        self._append_runner_log(f"Fragmentation: {'enabled' if fragment else 'disabled'}")
+        if restricted_network_mode:
+            self._append_runner_log(
+                "Optimized restricted-network mode: enabled "
+                "(fingerprint=unsafe, custom cipher suites, FinalMask fragmentation)"
+            )
+        else:
+            self._append_runner_log(f"Fragmentation: {'enabled' if fragment else 'disabled'}")
         self._apply_runner_system_proxy_mode(port)
         self._start_runner_log_threads(self.runner_process)
         self._log(f"Xray runner started for {ip} on {listen}:{port}")
@@ -648,7 +722,8 @@ class RunnerMixin:
             messagebox.showwarning("Target IP Required", "Enter or select an IP address first.")
             return
         fragment = self._runner_fragment_settings()
-        if fragment is None:
+        restricted_network_mode = self._validated_restricted_network_mode(profile)
+        if fragment is None or restricted_network_mode is None:
             return
         self._set_runner_speed_state(True)
         if speed_mode == "download":
@@ -658,12 +733,29 @@ class RunnerMixin:
         self._append_runner_log(f"Starting {speed_mode} speed test for {ip}")
         self.runner_speed_thread = threading.Thread(
             target=self._runner_speed_worker,
-            args=(ip, profile, speed_mode, speed_settings[0], speed_settings[1], fragment),
+            args=(
+                ip,
+                profile,
+                speed_mode,
+                speed_settings[0],
+                speed_settings[1],
+                fragment,
+                restricted_network_mode,
+            ),
             daemon=True,
         )
         self.runner_speed_thread.start()
 
-    def _runner_speed_worker(self, ip, profile, speed_mode, speed_test_bytes, speed_timeout_ms, fragment):
+    def _runner_speed_worker(
+        self,
+        ip,
+        profile,
+        speed_mode,
+        speed_test_bytes,
+        speed_timeout_ms,
+        fragment,
+        restricted_network_mode=False,
+    ):
         try:
             result = test_ip(
                 ip,
@@ -675,6 +767,7 @@ class RunnerMixin:
                 speed_test_bytes=speed_test_bytes,
                 speed_timeout_ms=speed_timeout_ms,
                 fragment=fragment,
+                restricted_network_mode=restricted_network_mode,
                 process_started=self._track_process,
                 process_finished=self._untrack_process,
             )
@@ -683,6 +776,12 @@ class RunnerMixin:
         self.events.put(("runner_speed_result", speed_mode, result))
 
     def start_runner_fragment_scan(self):
+        if self._restricted_network_mode_enabled():
+            messagebox.showinfo(
+                "Standard Fragment Scan Unavailable",
+                "Turn off optimized mode for restricted networks to scan standard fragment variations.",
+            )
+            return
         profile = self._selected_runner_profile()
         speed_settings = self._runner_speed_settings()
         if profile is None or speed_settings is None:
@@ -1007,12 +1106,15 @@ class RunnerMixin:
             return
         if item not in self.runner_fragment_results.selection():
             self.runner_fragment_results.selection_set(item)
+        self._sync_runner_fragment_menu_state()
         try:
             self.runner_fragment_menu.tk_popup(event.x_root, event.y_root)
         finally:
             self.runner_fragment_menu.grab_release()
 
     def apply_selected_runner_fragment(self):
+        if self._restricted_network_mode_enabled():
+            return
         selected = self.runner_fragment_results.selection()
         if not selected:
             return
