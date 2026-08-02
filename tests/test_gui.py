@@ -892,8 +892,14 @@ class GuiTests(unittest.TestCase):
 
         showerror.assert_called_once()
 
-    def test_run_selected_ip_with_xray_sets_ip_selects_tab_and_starts(self):
+    def test_run_selected_ip_with_xray_hands_scanner_profile_and_ip_to_runner(self):
         app = object.__new__(gui.ProxyTesterGui)
+        scanner_profile = Mock()
+        scanner_profile.name = "scanner.config"
+        scanner_profile.protocol = "vless"
+        app.profile = scanner_profile
+        app.runner_profile = Mock()
+        app.runner_profile_var = FakeVar()
         app.runner_ip_var = FakeVar()
         app.runner_tab = object()
         app.notebook = Mock()
@@ -902,9 +908,28 @@ class GuiTests(unittest.TestCase):
 
         app.run_selected_ip_with_xray()
 
+        self.assertIs(app.runner_profile, scanner_profile)
+        self.assertEqual(app.runner_profile_var.value, "scanner.config")
         self.assertEqual(app.runner_ip_var.value, "104.16.1.1")
         app.notebook.select.assert_called_once_with(app.runner_tab)
         app.start_xray_runner.assert_called_once_with("104.16.1.1")
+
+    def test_run_selected_ip_with_xray_does_not_use_stale_runner_profile(self):
+        app = object.__new__(gui.ProxyTesterGui)
+        app.profile = None
+        app.runner_profile = Mock()
+        app.runner_ip_var = FakeVar()
+        app.runner_tab = object()
+        app.notebook = Mock()
+        app._selected_single_ip = Mock(return_value="104.16.1.1")
+        app.start_xray_runner = Mock()
+
+        with patch.object(gui_config.messagebox, "showwarning") as showwarning:
+            app.run_selected_ip_with_xray()
+
+        showwarning.assert_called_once()
+        app.notebook.select.assert_not_called()
+        app.start_xray_runner.assert_not_called()
 
     def test_append_runner_log_writes_to_runner_log_widget(self):
         app = object.__new__(gui.ProxyTesterGui)

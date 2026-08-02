@@ -532,6 +532,10 @@ class RunnerMixin:
         ip = self._selected_single_ip()
         if not ip:
             return
+        profile = self._selected_profile()
+        if profile is None:
+            return
+        self._set_runner_profile(profile)
         self.runner_ip_var.set(ip)
         self.notebook.select(self.runner_tab)
         self.start_xray_runner(ip)
