@@ -203,7 +203,10 @@ class TableMixin:
             heading(column, text=text)
 
     def _sorted_results(self):
-        return sorted(self.passed_results, key=self._sort_value, reverse=self.sort_reverse)
+        failed = [result for result in self.passed_results if self._sort_value(result) == -1]
+        valid = [result for result in self.passed_results if self._sort_value(result) != -1]
+        valid.sort(key=self._sort_value, reverse=self.sort_reverse)
+        return valid + failed
 
     def _sort_value(self, result):
         return table_sort_value(result, self.sort_column)
